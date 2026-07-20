@@ -17,7 +17,7 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env.exmaple}
+    env_file: ${WHATSERV_ENV_FILE:-.env.example}
     depends_on:
       postgres:
         condition: service_healthy
