@@ -34,7 +34,7 @@ services:
   whatsapp-worker:
     build: ./whatsapp-worker
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env}
+    env_file: ${WHATSERV_ENV_FILE:-.env.example}
     depends_on:
       backend:
         condition: service_healthy
