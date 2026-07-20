@@ -24,13 +24,18 @@ WhatServ — сервер для одновременного подключен
 
 ## Архитектура
 
-```text
-браузер ──HTTPS──> reverse proxy ──> FastAPI ──> PostgreSQL
-                                      ▲
-                                      │ private HTTP + bearer
-                                      │
-                              Node.js / Baileys
-                         1 socket и auth state на аккаунт
+```mermaid
+flowchart LR
+    browser["Браузер"]
+    proxy["Reverse proxy"]
+    api["FastAPI"]
+    database[("PostgreSQL")]
+    gateway["Node.js / Baileys<br/>1 socket и auth state на аккаунт"]
+
+    browser -->|"HTTPS"| proxy
+    proxy --> api
+    api --> database
+    gateway -->|"Private HTTP + bearer"| api
 ```
 
 FastAPI — единственный публичный слой. Baileys-шлюз не публикует API наружу и только получает список включённых аккаунтов, отправляет состояния/QR и доставляет входящие сообщения.
