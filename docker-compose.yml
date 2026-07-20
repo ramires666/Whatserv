@@ -17,7 +17,7 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env.example}
+    env_file: ${WHATSERV_ENV_FILE:-.env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,7 +34,7 @@ services:
   whatsapp-worker:
     build: ./whatsapp-worker
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env.example}
+    env_file: ${WHATSERV_ENV_FILE:-.env}
     depends_on:
       backend:
         condition: service_healthy
