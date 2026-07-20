@@ -57,7 +57,7 @@ FastAPI — единственный публичный слой. Baileys-шлю
 3. Укажите внешний адрес в `PUBLIC_BASE_URL`. В production принимается только `https://`. Для локальной проверки можно явно поставить:
 
    ```dotenv
-   PUBLIC_BASE_URL=http://127.0.0.1:8000
+   PUBLIC_BASE_URL=http://127.0.0.1:23864
    ALLOW_INSECURE_HTTP=true
    ```
 
@@ -68,7 +68,7 @@ FastAPI — единственный публичный слой. Baileys-шлю
    docker compose ps
    ```
 
-5. Откройте `http://127.0.0.1:8000/admin` и войдите с `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+5. Откройте `http://127.0.0.1:23864/admin` и войдите с `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 
 ## Привязка WhatsApp через QR
 
@@ -104,16 +104,36 @@ npm.cmd ci
 npm.cmd test
 Pop-Location
 
-$env:WHATSERV_ENV_FILE='.env.example'
 docker compose --env-file .env.example config --quiet
 ```
 
 Python-тесты используют SQLite только как изолированную тестовую БД. Production-контейнер перед стартом выполняет `alembic upgrade head` для PostgreSQL.
 
+## Локальный менеджер Dockhand
+
+В `tools/dockhand-manager` находится отдельная localhost-only веб-панель для управления Dockhand Git repositories и Git stacks через официальный API. Она диагностирует конфликты имён до создания, требует отдельный preflight, блокирует повторную отправку, не сохраняет API-токен и маскирует секретные поля ответов Dockhand.
+
+На сервере с Dockhand:
+
+```bash
+python3 tools/dockhand-manager/server.py \
+  --dockhand-url http://127.0.0.1:9853
+```
+
+С рабочей машины открыть SSH-туннель:
+
+```bash
+ssh -L 8765:127.0.0.1:8765 user@ASUSdebian
+```
+
+Затем открыть `http://127.0.0.1:8765`. Подробная инструкция и модель безопасности: [Dockhand Git Stack Manager](tools/dockhand-manager/README.md).
+
+Compose явно ссылается на runtime-переменные через `${VAR}`, поэтому значения из Dockhand **Stack variables / Overrides** попадут в контейнеры. Обязательные секреты перечислены в `.env.example`; сам `.env` в Git добавлять не нужно и нельзя.
+
 ## Production checklist
 
 - Завершайте TLS на reverse proxy, включите HSTS и rate limits для `/admin`, `/inbox` и `/api/public`.
-- Не публикуйте порт 8000 напрямую: Compose привязывает его только к `127.0.0.1`.
+- Не открывайте host-порт `23864` во внешнюю сеть: Compose привязывает его только к `127.0.0.1`.
 - Ограничьте `/admin` VPN/IP allowlist и используйте уникальный длинный пароль.
 - Храните `.env` в secret manager, не в Git. Не меняйте Fernet-ключи без процедуры re-encryption.
 - Разместите `postgres-data` и `whatsapp-sessions` на шифрованном диске; файлы Baileys являются полноценными credentials связанного устройства.

@@ -198,7 +198,25 @@ curl -i -X DELETE \
 
 Токен нельзя публиковать, добавлять в Git или отправлять в переписку.
 
-## 7. Завершение
+## 7. Управление Git Stack через локальную панель
+
+Чтобы не собирать `curl`-запросы вручную, после обновления можно запустить localhost-only менеджер из WhatServ:
+
+```bash
+cd ~/GROM/Whatserv
+python3 tools/dockhand-manager/server.py \
+  --dockhand-url http://127.0.0.1:9853
+```
+
+Если браузер находится на другой машине, открыть SSH-туннель:
+
+```bash
+ssh -L 8765:127.0.0.1:8765 user@ASUSdebian
+```
+
+Затем открыть `http://127.0.0.1:8765`. Панель показывает repositories, Git/Compose stacks, проверяет конфликты имён и требует ввод имени перед Create, Deploy, Sync или Delete. Полная инструкция: [Dockhand Git Stack Manager](../tools/dockhand-manager/README.md).
+
+## 8. Завершение
 
 Удалять резервный старый контейнер следует только после полной проверки новой версии:
 

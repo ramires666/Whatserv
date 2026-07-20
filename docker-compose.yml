@@ -17,14 +17,27 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN is required}
+      ACCESS_TOKEN_PEPPER: ${ACCESS_TOKEN_PEPPER:?ACCESS_TOKEN_PEPPER is required}
+      FERNET_KEY: ${FERNET_KEY:?FERNET_KEY is required}
+      QR_FERNET_KEY: ${QR_FERNET_KEY:?QR_FERNET_KEY is required}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
+      CAPABILITY_TTL_HOURS: ${CAPABILITY_TTL_HOURS:-720}
+      QR_TTL_SECONDS: ${QR_TTL_SECONDS:-120}
+      MESSAGE_PAGE_SIZE: ${MESSAGE_PAGE_SIZE:-100}
+      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-false}
     depends_on:
       postgres:
         condition: service_healthy
     expose:
       - "8000"
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:23864:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 10s
@@ -34,7 +47,13 @@ services:
   whatsapp-worker:
     build: ./whatsapp-worker
     restart: unless-stopped
-    env_file: ${WHATSERV_ENV_FILE:-.env}
+    environment:
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN is required}
+      WA_SESSION_DIR: ${WA_SESSION_DIR:-/data/sessions}
+      WA_RECONCILE_INTERVAL_MS: ${WA_RECONCILE_INTERVAL_MS:-15000}
+      WA_HEALTH_PORT: ${WA_HEALTH_PORT:-3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       backend:
         condition: service_healthy

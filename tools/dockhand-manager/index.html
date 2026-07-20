@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dockhand Git Stack Manager</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">LOCAL CONTROL PLANE</p>
+        <h1>Dockhand Git Stack Manager</h1>
+        <p class="subtitle">Репозитории, Git stacks и диагностика конфликтов — без повторных запросов и спрятанных ошибок.</p>
+      </div>
+      <div class="safety-badges" aria-label="Гарантии безопасности">
+        <span>127.0.0.1 only</span>
+        <span>Token in memory</span>
+        <span>Secrets redacted</span>
+      </div>
+    </header>
+
+    <section class="panel connection-panel" aria-labelledby="connection-title">
+      <div class="panel-heading">
+        <div>
+          <p class="section-kicker">01 / CONNECTION</p>
+          <h2 id="connection-title">Подключение</h2>
+        </div>
+        <div id="connection-status" class="status-pill neutral" role="status">Не подключено</div>
+      </div>
+      <div class="connection-grid">
+        <label>
+          <span>Dockhand URL</span>
+          <input id="dockhand-url" type="text" readonly>
+        </label>
+        <label>
+          <span>API token</span>
+          <input id="api-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="dh_…">
+        </label>
+        <div class="button-row compact">
+          <button id="connect-button" class="button primary" type="button">Подключить</button>
+          <button id="disconnect-button" class="button ghost" type="button" disabled>Отключить</button>
+        </div>
+      </div>
+      <p class="hint">Токен очищается из поля после подключения и не записывается в cookies, Storage или URL.</p>
+    </section>
+
+    <main id="workspace" hidden>
+      <section class="panel deploy-panel" aria-labelledby="deploy-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">02 / CREATE</p>
+            <h2 id="deploy-title">Развернуть из Git</h2>
+          </div>
+          <button id="refresh-button" class="button ghost" type="button">Обновить данные</button>
+        </div>
+
+        <form id="deploy-form" novalidate>
+          <div class="form-grid">
+            <label>
+              <span>Environment</span>
+              <select id="environment" required></select>
+            </label>
+            <label>
+              <span>Git URL</span>
+              <input id="repository-url" type="url" required value="https://github.com/ramires666/Whatserv.git" spellcheck="false">
+            </label>
+            <label>
+              <span>Repository name</span>
+              <input id="repository-name" type="text" required value="whatserv" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*">
+            </label>
+            <label>
+              <span>Branch</span>
+              <input id="repository-branch" type="text" required value="main" spellcheck="false">
+            </label>
+            <label>
+              <span>Stack name</span>
+              <input id="stack-name" type="text" required value="whatserv" pattern="[a-z0-9][a-z0-9_-]*">
+            </label>
+            <label>
+              <span>Compose path</span>
+              <input id="compose-path" type="text" required value="docker-compose.yml" spellcheck="false">
+            </label>
+            <label>
+              <span>Additional env file <small>(необязательно)</small></span>
+              <input id="env-file-path" type="text" placeholder=".env.production" spellcheck="false">
+            </label>
+            <label class="toggle-field">
+              <input id="auto-update" type="checkbox">
+              <span>Включить auto-update</span>
+            </label>
+          </div>
+
+          <div id="preflight" class="preflight neutral" aria-live="polite">
+            Заполните форму — проверка конфликтов выполняется автоматически.
+          </div>
+
+          <details class="deploy-note">
+            <summary>Переменные WhatServ перед первым успешным Deploy</summary>
+            <p>Добавьте обязательные значения из <code>.env.example</code> в Dockhand → Git Stack → Variables / Overrides. API-схема variables в Dockhand не опубликована, поэтому панель намеренно не угадывает её и не отправляет секреты неподтверждённым полем.</p>
+          </details>
+
+          <div class="button-row">
+            <button id="preflight-button" class="button secondary" type="button">Проверить</button>
+            <button id="create-button" class="button primary" type="submit">Создать и развернуть</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="metrics" aria-label="Сводка">
+        <article class="metric-card">
+          <span>Environments</span>
+          <strong id="environment-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Repositories</span>
+          <strong id="repository-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Git stacks</span>
+          <strong id="git-stack-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Compose stacks</span>
+          <strong id="compose-stack-count">0</strong>
+        </article>
+      </section>
+
+      <section class="panel data-panel" aria-labelledby="repositories-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">03 / INVENTORY</p>
+            <h2 id="repositories-title">Repositories</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Remote</th><th>Branch</th><th>Actions</th></tr></thead>
+            <tbody id="repositories-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel data-panel" aria-labelledby="git-stacks-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">04 / OPERATIONS</p>
+            <h2 id="git-stacks-title">Git stacks</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Stack</th><th>Environment</th><th>Status</th><th>Repository</th><th>Actions</th></tr></thead>
+            <tbody id="git-stacks-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel data-panel" aria-labelledby="compose-stacks-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">05 / COLLISION CHECK</p>
+            <h2 id="compose-stacks-title">Обычные Compose stacks</h2>
+          </div>
+          <span class="muted">Только диагностика имён</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Status</th><th>Config</th></tr></thead>
+            <tbody id="compose-stacks-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel activity-panel" aria-labelledby="activity-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">06 / SAFE OUTPUT</p>
+            <h2 id="activity-title">Последняя операция</h2>
+          </div>
+          <button id="clear-output-button" class="button ghost small" type="button">Очистить</button>
+        </div>
+        <pre id="operation-output">Операций пока не было.</pre>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog" id="confirm-form">
+      <p class="section-kicker">CONFIRM DESTRUCTIVE ACTION</p>
+      <h2 id="confirm-title">Подтверждение</h2>
+      <p id="confirm-description"></p>
+      <label>
+        <span id="confirm-label">Введите имя</span>
+        <input id="confirm-input" type="text" autocomplete="off">
+      </label>
+      <div class="button-row">
+        <button class="button ghost" value="cancel">Отмена</button>
+        <button id="confirm-submit" class="button danger" value="confirm">Удалить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
