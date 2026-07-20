@@ -1,0 +1,16 @@
+fastapi==0.129.2
+uvicorn[standard]==0.41.0
+SQLAlchemy==2.0.40
+alembic>=1.16,<2
+asyncpg==0.31.0
+aiosqlite>=0.21,<1
+pydantic-settings==2.14.2
+cryptography>=44,<47
+pyotp==2.9.0
+phonenumbers>=9,<10
+Jinja2==3.1.6
+python-multipart==0.0.28
+qrcode[pil]>=8.0,<9
+httpx==0.28.1
+pytest==9.0.3
+pytest-asyncio==1.4.0

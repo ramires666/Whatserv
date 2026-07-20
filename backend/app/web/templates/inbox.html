@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>{{ label }} · WhatServ</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="inbox-page" data-snapshot-url="{{ snapshot_url }}">
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">ЗАЩИЩЁННЫЙ ВХОДЯЩИЙ КАНАЛ</p>
+        <h1>{{ label }}</h1>
+        <p class="muted">{{ masked_phone }}</p>
+      </div>
+      <div id="connection" class="status-pill status-unknown">подключение…</div>
+    </header>
+
+    <section class="totp-card" aria-labelledby="totp-title">
+      <div>
+        <p id="totp-title" class="eyebrow">GOOGLE AUTHENTICATOR</p>
+        <p id="totp-code" class="totp-code" aria-live="polite">——— ———</p>
+      </div>
+      <div class="countdown" aria-label="Осталось секунд">
+        <svg viewBox="0 0 44 44" role="img">
+          <circle class="countdown-track" cx="22" cy="22" r="18"></circle>
+          <circle id="countdown-ring" class="countdown-ring" cx="22" cy="22" r="18"></circle>
+        </svg>
+        <span id="countdown-value">—</span>
+      </div>
+    </section>
+
+    <section class="messages-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">WHATSAPP</p>
+          <h2>Входящие сообщения</h2>
+        </div>
+        <button id="refresh" class="ghost-button" type="button">Обновить</button>
+      </div>
+      <div id="error" class="error-banner" hidden></div>
+      <ol id="messages" class="message-list" aria-live="polite">
+        <li class="empty-state">Загружаем сообщения…</li>
+      </ol>
+    </section>
+  </main>
+  <script src="/static/inbox.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Управление · WhatServ</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell admin-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">WHATSERV</p>
+        <h1>Аккаунты</h1>
+        <p class="muted">Привязка WhatsApp и TOTP</p>
+      </div>
+      <span class="status-pill status-online">admin</span>
+    </header>
+
+    {% if notice %}<div class="notice-banner">{{ notice }}</div>{% endif %}
+
+    <section class="admin-grid">
+      <form class="panel form-panel" method="post" action="/admin/accounts" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <p class="eyebrow">НОВЫЙ АККАУНТ</p>
+        <h2>Добавить номер</h2>
+        <label>Название<input name="label" maxlength="120" placeholder="Основной аккаунт" required></label>
+        <label>Телефон<input name="phone" inputmode="tel" placeholder="+77001234567" required></label>
+        <label>TOTP-секрет<input name="totp_secret" spellcheck="false" placeholder="Base32, необязательно"></label>
+        <p class="field-hint">Секрет шифруется до записи в БД и больше не показывается.</p>
+        <button class="primary-button" type="submit">Создать и показать ссылку</button>
+      </form>
+
+      <section class="accounts-column">
+        {% if not accounts %}
+          <div class="panel empty-state">Аккаунтов пока нет.</div>
+        {% endif %}
+        {% for item in accounts %}
+          {% set account = item.account %}
+          <article class="panel account-card">
+            <div class="account-main">
+              <div>
+                <p class="eyebrow">{{ account.phone_e164 }}</p>
+                <h2>{{ account.label }}</h2>
+              </div>
+              <span class="status-pill status-{{ account.wa_state }}">{{ account.wa_state }}</span>
+            </div>
+            {% if account.last_error %}<p class="account-error">{{ account.last_error }}</p>{% endif %}
+            {% if item.has_qr and account.wa_state in ['pending_qr', 'connecting'] %}
+              <div class="qr-block">
+                <img src="/admin/accounts/{{ account.id }}/qr.png" width="220" height="220" alt="QR-код привязки WhatsApp">
+                <p>WhatsApp → Связанные устройства → Привязка устройства</p>
+              </div>
+            {% elif item.pairing_code %}
+              <p class="pairing-code">{{ item.pairing_code }}</p>
+            {% endif %}
+            <div class="card-actions">
+              <form method="post" action="/admin/accounts/{{ account.id }}/rotate-link">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="ghost-button" type="submit">Новая ссылка</button>
+              </form>
+              <form method="post" action="/admin/accounts/{{ account.id }}/toggle">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="ghost-button" type="submit">{{ 'Отключить' if account.enabled else 'Включить' }}</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </section>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,6 @@
+__pycache__
+.pytest_cache
+.test-runtime
+tests
+*.pyc
+*.sqlite3

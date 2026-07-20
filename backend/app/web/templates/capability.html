@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Ссылка создана · WhatServ</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell narrow-shell">
+    <section class="panel capability-panel">
+      <p class="eyebrow">ПОКАЗЫВАЕТСЯ ОДИН РАЗ</p>
+      <h1>Ссылка для {{ label }}</h1>
+      <p>Скопируйте её сейчас. На сервере хранится только SHA-256 отпечаток токена, восстановить ссылку позднее нельзя.</p>
+      <div class="capability-url" id="capability-url">{{ capability_url }}</div>
+      <p class="field-hint">Ссылка действует до {{ expires_at }}. После этого выпустите новую в панели администратора.</p>
+      <button id="copy-capability" class="primary-button" type="button">Скопировать</button>
+      <a class="text-link" href="/admin">Вернуться к аккаунтам</a>
+    </section>
+  </main>
+  <script src="/static/capability.js" defer></script>
+</body>
+</html>

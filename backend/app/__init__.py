@@ -1,0 +1,1 @@
+"""WhatServ FastAPI application."""
