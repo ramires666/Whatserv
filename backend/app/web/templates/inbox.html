@@ -7,21 +7,34 @@
   <title>{{ label }} · WhatServ</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="inbox-page" data-snapshot-url="{{ snapshot_url }}">
+<body class="inbox-page" data-snapshot-url="{{ snapshot_url }}" data-credentials-url="{{ credentials_url }}">
   <main class="shell">
     <header class="topbar">
       <div>
         <p class="eyebrow">ЗАЩИЩЁННЫЙ ВХОДЯЩИЙ КАНАЛ</p>
         <h1>{{ label }}</h1>
-        <p class="muted">{{ masked_phone }}</p>
+        <p class="account-phone">{{ phone }}</p>
+        <p class="muted">Аккаунт добавлен: <time class="local-time" datetime="{{ account_created_at.isoformat() }}">{{ account_created_at }}</time></p>
       </div>
       <div id="connection" class="status-pill status-unknown">подключение…</div>
     </header>
 
+    <section class="credentials-card" aria-labelledby="credentials-title">
+      <div>
+        <p id="credentials-title" class="eyebrow">ДАННЫЕ ДЛЯ ВХОДА</p>
+        <p class="credential-email">{{ login_email or 'НЕ НАСТРОЕН' }}</p>
+        <p id="credential-password" class="credential-password">••••••••••••</p>
+      </div>
+      <div class="credential-actions">
+        <button id="reveal-password" class="ghost-button" type="button" {{ 'disabled' if not login_email else '' }}>Показать пароль</button>
+        <button id="copy-password" class="ghost-button" type="button" disabled>Скопировать</button>
+      </div>
+    </section>
+
     <section class="totp-card" aria-labelledby="totp-title">
       <div>
         <p id="totp-title" class="eyebrow">GOOGLE AUTHENTICATOR</p>
-        <p id="totp-code" class="totp-code" aria-live="polite">——— ———</p>
+        <button id="totp-code" class="totp-code" type="button" aria-live="polite" title="Нажмите, чтобы скопировать" disabled>——— ———</button>
       </div>
       <div class="countdown" aria-label="Осталось секунд">
         <svg viewBox="0 0 44 44" role="img">

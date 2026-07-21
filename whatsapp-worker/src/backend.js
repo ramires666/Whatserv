@@ -9,5 +9,6 @@ export class BackendClient {
   }
   accounts() { return this.request('/api/internal/accounts').then((data) => data.items ?? []); }
   state(id, payload) { return this.request(`/api/internal/accounts/${encodeURIComponent(id)}/state`, { method: 'POST', body: JSON.stringify(payload) }); }
+  ackLogout(id, commandId) { return this.request(`/api/internal/accounts/${encodeURIComponent(id)}/commands/logout/${encodeURIComponent(commandId)}/ack`, { method: 'POST' }); }
   message(payload) { return this.request('/api/internal/messages', { method: 'POST', body: JSON.stringify(payload) }); }
 }

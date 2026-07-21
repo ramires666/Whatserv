@@ -13,10 +13,19 @@ const outbox = new MessageOutbox({ directory: `${config.authDir}/_outbox`, backe
 await outbox.init();
 const manager = new AccountManager({ backend, authDir: config.authDir, logger, outbox });
 let healthy = false;
-async function reconcile() { try { await manager.reconcile(await backend.accounts()); await outbox.flush(); healthy = true; } catch (error) { healthy = false; logger.error('reconcile_failed', { error: error.message }); } }
+let activeReconcile = null;
+async function reconcile() {
+  if (activeReconcile) return activeReconcile;
+  activeReconcile = (async () => {
+    try { await manager.reconcile(await backend.accounts()); await outbox.flush(); healthy = true; }
+    catch (error) { healthy = false; logger.error('reconcile_failed', { error: error.message }); }
+    finally { activeReconcile = null; }
+  })();
+  return activeReconcile;
+}
 const server = http.createServer((req, res) => { if (req.url !== '/healthz') { res.writeHead(404).end(); return; } res.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ status: healthy ? 'ok' : 'degraded', ...manager.status() })); });
 server.listen(config.healthPort, () => logger.info('health_server_started', { port: config.healthPort }));
 await reconcile();
-const interval = setInterval(reconcile, config.reconcileInterval);
+const interval = setInterval(() => { void reconcile(); }, config.reconcileInterval);
 async function shutdown(signal) { logger.info('shutdown_started', { signal }); clearInterval(interval); server.close(); await Promise.all([...manager.accounts.keys()].map((id) => manager.stop(id, 'stopped'))); process.exit(0); }
 process.on('SIGINT', () => shutdown('SIGINT')); process.on('SIGTERM', () => shutdown('SIGTERM'));

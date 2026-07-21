@@ -10,9 +10,9 @@
 <body>
   <main class="shell narrow-shell">
     <section class="panel capability-panel">
-      <p class="eyebrow">ПОКАЗЫВАЕТСЯ ОДИН РАЗ</p>
+      <p class="eyebrow">ЗАЩИЩЁННАЯ ССЫЛКА</p>
       <h1>Ссылка для {{ label }}</h1>
-      <p>Скопируйте её сейчас. На сервере хранится только SHA-256 отпечаток токена, восстановить ссылку позднее нельзя.</p>
+      <p>Скопируйте её сейчас или откройте позднее кнопкой «Показать» на карточке аккаунта. Для проверки доступа в БД хранится SHA-256 отпечаток, а исходный токен хранится отдельно в зашифрованном виде.</p>
       <div class="capability-url" id="capability-url">{{ capability_url }}</div>
       <p class="field-hint">Ссылка действует до {{ expires_at }}. После этого выпустите новую в панели администратора.</p>
       <button id="copy-capability" class="primary-button" type="button">Скопировать</button>

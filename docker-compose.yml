@@ -25,6 +25,7 @@ services:
       ACCESS_TOKEN_PEPPER: ${ACCESS_TOKEN_PEPPER:?ACCESS_TOKEN_PEPPER is required}
       FERNET_KEY: ${FERNET_KEY:?FERNET_KEY is required}
       QR_FERNET_KEY: ${QR_FERNET_KEY:?QR_FERNET_KEY is required}
+      CREDENTIAL_FERNET_KEY: ${CREDENTIAL_FERNET_KEY:?CREDENTIAL_FERNET_KEY is required}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       CAPABILITY_TTL_HOURS: ${CAPABILITY_TTL_HOURS:-720}
@@ -37,7 +38,7 @@ services:
     expose:
       - "8000"
     ports:
-      - "192.168.1.66:23864:8000"
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:23864:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 10s

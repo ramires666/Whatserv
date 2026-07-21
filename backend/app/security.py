@@ -78,7 +78,7 @@ def generate_capability_token(*, token_bytes: int = CAPABILITY_TOKEN_BYTES) -> s
 
 
 def hash_capability_token(token: str, pepper: str | bytes = b"") -> str:
-    """Return an HMAC-SHA-256 digest for storage; never store the token itself."""
+    """Return the HMAC-SHA-256 digest used to authenticate a capability token."""
     if not isinstance(token, str) or not token:
         raise ValueError("capability token is required")
     if isinstance(pepper, str):
@@ -134,3 +134,45 @@ class TotpSeedCipher:
         if not seed.strip():
             raise TotpSeedCipherError("invalid encrypted TOTP seed")
         return seed
+
+
+class CredentialCipherError(ValueError):
+    """Raised without exposing credential plaintext or cryptographic details."""
+
+
+class CredentialCipher:
+    """Authenticated encryption for login passwords stored at rest."""
+
+    def __init__(self, key: str | bytes) -> None:
+        if isinstance(key, str):
+            try:
+                key = key.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise CredentialCipherError("invalid credential encryption key") from exc
+        if not isinstance(key, bytes) or not key:
+            raise CredentialCipherError("credential encryption key is required")
+        try:
+            self._fernet = Fernet(key)
+        except (ValueError, TypeError, binascii.Error) as exc:
+            raise CredentialCipherError("invalid credential encryption key") from exc
+
+    def encrypt(self, plaintext: str) -> str:
+        if not isinstance(plaintext, str) or not plaintext:
+            raise CredentialCipherError("credential value is required")
+        return self._fernet.encrypt(plaintext.encode("utf-8")).decode("ascii")
+
+    def decrypt(self, ciphertext: str | bytes) -> str:
+        if isinstance(ciphertext, str):
+            try:
+                ciphertext = ciphertext.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise CredentialCipherError("invalid encrypted credential") from exc
+        if not isinstance(ciphertext, bytes) or not ciphertext:
+            raise CredentialCipherError("invalid encrypted credential")
+        try:
+            plaintext = self._fernet.decrypt(ciphertext).decode("utf-8")
+        except (InvalidToken, UnicodeDecodeError, ValueError, TypeError) as exc:
+            raise CredentialCipherError("invalid encrypted credential") from exc
+        if not plaintext:
+            raise CredentialCipherError("invalid encrypted credential")
+        return plaintext

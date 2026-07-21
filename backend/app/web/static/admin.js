@@ -1,0 +1,254 @@
+(() => {
+  'use strict';
+
+  const createSecret = document.querySelector('#create-totp-secret');
+  const createCode = document.querySelector('#create-totp-code');
+  const withoutTotp = document.querySelector('#without-totp');
+  const revealTimers = new Map();
+  let formDirty = false;
+
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.append(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      return copied;
+    }
+  }
+
+  function syncCreateTotpRequirement() {
+    if (!createSecret || !createCode || !withoutTotp) return;
+    const disabled = withoutTotp.checked;
+    createSecret.disabled = disabled;
+    createSecret.required = !disabled;
+    createCode.disabled = disabled;
+    createCode.required = !disabled;
+    if (disabled) {
+      createSecret.value = '';
+      createCode.value = '';
+      createSecret.type = 'password';
+      const toggle = document.querySelector('[data-secret-toggle="create-totp-secret"]');
+      if (toggle) {
+        toggle.textContent = 'Показать';
+        toggle.setAttribute('aria-label', 'Показать TOTP-секрет');
+      }
+    }
+  }
+
+  for (const button of document.querySelectorAll('[data-secret-toggle]')) {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.dataset.secretToggle);
+      if (!input) return;
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      button.textContent = reveal ? 'Скрыть' : 'Показать';
+      button.setAttribute('aria-label', reveal ? 'Скрыть TOTP-секрет' : 'Показать TOTP-секрет');
+    });
+  }
+
+  for (const form of document.querySelectorAll('form[data-confirm]')) {
+    form.addEventListener('submit', (event) => {
+      if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+    });
+  }
+
+  function copyButtonFor(targetId) {
+    return document.querySelector(`[data-copy-target="${CSS.escape(targetId)}"]`);
+  }
+
+  function hideRevealedValue(targetId, revealButton) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.textContent = targetId.startsWith('admin-password-')
+      ? '••••••••••••'
+      : 'Нажмите «Показать»';
+    delete target.dataset.copyValue;
+    const copyButton = copyButtonFor(targetId);
+    if (copyButton) copyButton.disabled = true;
+    if (revealButton) revealButton.textContent = 'Показать';
+    clearTimeout(revealTimers.get(targetId));
+    revealTimers.delete(targetId);
+  }
+
+  function scheduleHide(targetId, revealButton) {
+    clearTimeout(revealTimers.get(targetId));
+    revealTimers.set(targetId, setTimeout(() => {
+      hideRevealedValue(targetId, revealButton);
+    }, 30_000));
+  }
+
+  for (const button of document.querySelectorAll('[data-reveal-credentials]')) {
+    button.addEventListener('click', async () => {
+      const accountId = button.dataset.revealCredentials;
+      const targetId = `admin-password-${accountId}`;
+      const target = document.getElementById(targetId);
+      if (target?.dataset.copyValue) {
+        hideRevealedValue(targetId, button);
+        return;
+      }
+      button.disabled = true;
+      try {
+        const response = await fetch(`/admin/accounts/${encodeURIComponent(accountId)}/credentials`, {
+          cache: 'no-store', credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const credentials = await response.json();
+        target.textContent = credentials.password;
+        target.dataset.copyValue = credentials.password;
+        copyButtonFor(targetId).disabled = false;
+        button.textContent = 'Скрыть';
+        scheduleHide(targetId, button);
+      } catch (_) {
+        target.textContent = 'Не удалось получить пароль';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll('[data-reveal-link]')) {
+    button.addEventListener('click', async () => {
+      const accountId = button.dataset.revealLink;
+      const targetId = `admin-link-${accountId}`;
+      const target = document.getElementById(targetId);
+      if (target?.dataset.copyValue) {
+        hideRevealedValue(targetId, button);
+        return;
+      }
+      button.disabled = true;
+      try {
+        const response = await fetch(`/admin/accounts/${encodeURIComponent(accountId)}/capability`, {
+          cache: 'no-store', credentials: 'same-origin'
+        });
+        if (response.status === 410) {
+          target.textContent = 'Ссылка истекла — выпустите новую';
+          return;
+        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const capability = await response.json();
+        target.textContent = capability.url;
+        target.dataset.copyValue = capability.url;
+        copyButtonFor(targetId).disabled = false;
+        button.textContent = 'Скрыть';
+        scheduleHide(targetId, button);
+      } catch (_) {
+        target.textContent = 'Не удалось получить ссылку';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll('[data-copy-target]')) {
+    button.addEventListener('click', async () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+      const value = target?.dataset.copyValue;
+      if (!value) return;
+      try {
+        button.textContent = await copyText(value) ? 'Скопировано' : 'Ошибка';
+      } catch (_) { button.textContent = 'Ошибка'; }
+      setTimeout(() => { button.textContent = 'Копировать'; }, 1800);
+    });
+  }
+
+  function formatLocalTime(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.valueOf())) return value;
+    return new Intl.DateTimeFormat('ru', {
+      dateStyle: 'medium', timeStyle: 'medium'
+    }).format(date);
+  }
+
+  for (const node of document.querySelectorAll('time.local-time')) {
+    node.textContent = formatLocalTime(node.dateTime);
+  }
+
+  for (const button of document.querySelectorAll('.summary-copy')) {
+    button.addEventListener('click', async () => {
+      const value = button.dataset.copyValue;
+      if (!value) return;
+      const copied = await copyText(value);
+      button.classList.toggle('copied', copied);
+      setTimeout(() => button.classList.remove('copied'), 1000);
+    });
+  }
+
+  async function refreshAccountSummaries() {
+    try {
+      const response = await fetch('/admin/account-summaries', {
+        cache: 'no-store', credentials: 'same-origin'
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      for (const item of payload.items) {
+        const totpButton = document.querySelector(`[data-summary-totp="${CSS.escape(item.account_id)}"]`);
+        if (totpButton) {
+          const value = item.totp || '';
+          totpButton.querySelector('strong').textContent = value.length === 6
+            ? `${value.slice(0, 3)} ${value.slice(3)}`
+            : 'НЕ НАСТРОЕН';
+          totpButton.dataset.copyValue = value;
+          totpButton.disabled = !value;
+        }
+        const messageButton = document.querySelector(`[data-summary-message="${CSS.escape(item.account_id)}"]`);
+        if (messageButton && item.latest_message) {
+          const message = item.latest_message;
+          const body = message.body || `[${message.message_type}]`;
+          const sender = [message.sender_name, message.sender_phone].filter(Boolean).join(' · ')
+            || message.sender_jid || 'WhatsApp';
+          messageButton.querySelector('strong').textContent = body;
+          messageButton.querySelector('small').textContent = `${sender} · ${formatLocalTime(message.received_at)}`;
+          messageButton.dataset.copyValue = body;
+          messageButton.disabled = false;
+        }
+      }
+    } catch (_) {}
+  }
+
+  document.addEventListener('input', (event) => {
+    if (event.target.closest('form')) formDirty = true;
+  });
+  if (document.body.dataset.autoRefresh === 'true') {
+    setInterval(() => {
+      const editing = document.activeElement?.matches('input, textarea, select');
+      if (!document.hidden && !formDirty && !editing) window.location.reload();
+    }, 5000);
+  }
+  void refreshAccountSummaries();
+  setInterval(refreshAccountSummaries, 5000);
+
+  withoutTotp?.addEventListener('change', syncCreateTotpRequirement);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    for (const input of document.querySelectorAll('input[type="text"][name="totp_secret"]')) {
+      input.type = 'password';
+      const toggle = document.querySelector(`[data-secret-toggle="${CSS.escape(input.id)}"]`);
+      if (toggle) {
+        toggle.textContent = 'Показать';
+        toggle.setAttribute('aria-label', 'Показать TOTP-секрет');
+      }
+    }
+    for (const target of document.querySelectorAll('.secret-value[data-copy-value]')) {
+      const revealButton = target.id.startsWith('admin-password-')
+        ? document.querySelector(`[data-reveal-credentials="${CSS.escape(target.id.replace('admin-password-', ''))}"]`)
+        : document.querySelector(`[data-reveal-link="${CSS.escape(target.id.replace('admin-link-', ''))}"]`);
+      hideRevealedValue(target.id, revealButton);
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    for (const target of document.querySelectorAll('.secret-value[data-copy-value]')) {
+      hideRevealedValue(target.id, null);
+    }
+  });
+  syncCreateTotpRequirement();
+})();

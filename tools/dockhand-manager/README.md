@@ -97,7 +97,7 @@ URL нельзя изменить из браузера. Допускается 
 
 ### Переменные WhatServ в Dockhand
 
-Перед первым успешным запуском добавьте значения из `.env.example` в **Stack variables / Overrides** Dockhand. Обязательны `POSTGRES_PASSWORD`, `DATABASE_URL`, `ADMIN_PASSWORD`, `INTERNAL_API_TOKEN`, `ACCESS_TOKEN_PEPPER`, `FERNET_KEY`, `QR_FERNET_KEY` и `PUBLIC_BASE_URL`. `INTERNAL_API_TOKEN` должен быть одинаковым для backend и worker, а пароль PostgreSQL — совпадать в `POSTGRES_PASSWORD` и `DATABASE_URL`.
+Перед первым успешным запуском добавьте значения из `.env.example` в **Stack variables / Overrides** Dockhand. Обязательны `POSTGRES_PASSWORD`, `DATABASE_URL`, `ADMIN_PASSWORD`, `INTERNAL_API_TOKEN`, `ACCESS_TOKEN_PEPPER`, `FERNET_KEY`, `QR_FERNET_KEY`, `CREDENTIAL_FERNET_KEY` и `PUBLIC_BASE_URL`. Все три Fernet-ключа должны быть разными. `INTERNAL_API_TOKEN` должен быть одинаковым для backend и worker, а пароль PostgreSQL — совпадать в `POSTGRES_PASSWORD` и `DATABASE_URL`.
 
 Compose использует явные `${VAR}`-ссылки: именно так Dockhand передаёт overrides в контейнеры. Файл `.env` не коммитьте и не указывайте в поле **Additional env file**, если его физически нет в клонируемом repository.
 

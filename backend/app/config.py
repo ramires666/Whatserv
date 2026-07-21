@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     qr_fernet_key: SecretStr = Field(
         description="Independent Fernet key used to encrypt short-lived QR payloads."
     )
+    credential_fernet_key: SecretStr = Field(
+        description="Independent Fernet key used to encrypt login passwords at rest."
+    )
     access_token_pepper: SecretStr
     public_base_url: str = "https://localhost:8000"
     allow_insecure_http: bool = False
@@ -54,7 +57,7 @@ class Settings(BaseSettings):
         if self.public_base_url.startswith("http://") and not self.allow_insecure_http:
             raise ValueError("HTTP public_base_url requires ALLOW_INSECURE_HTTP=true")
 
-    @field_validator("fernet_key", "qr_fernet_key")
+    @field_validator("fernet_key", "qr_fernet_key", "credential_fernet_key")
     @classmethod
     def validate_fernet_key(cls, value: SecretStr) -> SecretStr:
         # Fernet keys are URL-safe base64 encodings of 32 random bytes (44 chars).
