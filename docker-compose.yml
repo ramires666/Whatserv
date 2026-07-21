@@ -70,4 +70,8 @@ services:
 
 volumes:
   postgres-data:
+    name: ${POSTGRES_VOLUME_NAME:-whatserv_postgres-data}
+    external: true
   whatsapp-sessions:
+    name: ${WHATSAPP_SESSIONS_VOLUME_NAME:-whatserv_whatsapp-sessions}
+    external: true

@@ -61,14 +61,41 @@ FastAPI — единственный публичный слой. Baileys-шлю
    ALLOW_INSECURE_HTTP=true
    ```
 
-4. Запустите сервисы:
+4. Один раз создайте внешние volumes. Команды идемпотентны и не затрагивают уже существующие данные:
+
+   ```bash
+   docker volume create whatserv-postgres-data
+   docker volume create whatserv-whatsapp-sessions
+   ```
+
+   На существующем сервере WhatServ эти volumes уже созданы предыдущей версией Compose. Перед обновлением проверьте точные имена через `docker volume ls`. Если они отличаются, укажите фактические имена в `POSTGRES_VOLUME_NAME` и `WHATSAPP_SESSIONS_VOLUME_NAME` — создавать пустые volumes вместо них нельзя.
+
+5. Запустите сервисы:
 
    ```powershell
    docker compose up --build -d
    docker compose ps
    ```
 
-5. Откройте `http://127.0.0.1:23864/admin` и войдите с `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+6. Откройте `http://127.0.0.1:23864/admin` и войдите с `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+
+## Постоянное хранение данных
+
+PostgreSQL и WhatsApp auth-сессии размещены во внешних Docker volumes со стабильными именами. Удаление и пересоздание контейнеров, Git stack, `docker compose down` и даже `docker compose down -v` эти volumes не удаляет. Compose только подключает их к новым контейнерам.
+
+Проверка на сервере:
+
+```bash
+docker volume inspect whatserv-postgres-data
+docker volume inspect whatserv-whatsapp-sessions
+```
+
+Не удаляйте их явными командами `docker volume rm` или `docker system prune --volumes`. От удаления самого диска или повреждения Docker-хранилища может защитить только отдельная резервная копия. Перед крупным обновлением базы создавайте дамп вне Docker volume:
+
+```bash
+mkdir -p "$HOME/whatserv-backups"
+docker compose exec -T postgres pg_dump -U whatserv -d whatserv -Fc > "$HOME/whatserv-backups/whatserv-$(date +%Y%m%d-%H%M%S).dump"
+```
 
 ## Привязка WhatsApp через QR
 

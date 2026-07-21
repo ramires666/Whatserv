@@ -101,6 +101,8 @@ URL нельзя изменить из браузера. Допускается 
 
 Compose использует явные `${VAR}`-ссылки: именно так Dockhand передаёт overrides в контейнеры. Файл `.env` не коммитьте и не указывайте в поле **Additional env file**, если его физически нет в клонируемом repository.
 
+PostgreSQL и WhatsApp-сессии подключаются как external volumes `whatserv-postgres-data` и `whatserv-whatsapp-sessions`. На существующем сервере сначала проверьте их имена через `docker volume ls`; если имена отличаются, перед deploy задайте `POSTGRES_VOLUME_NAME` и `WHATSAPP_SESSIONS_VOLUME_NAME`. External volumes сохраняются при удалении Git stack и при `docker compose down -v`.
+
 Точная API-схема сохранения variables/secrets для Git Stack в Dockhand 1.0.37 не опубликована. Панель не отправляет догадки вроде `envVars`. Если первый create завершился ошибкой отсутствующей переменной, сначала нажмите **Обновить данные**: если stack уже появился, не создавайте его повторно. Откройте этот stack в Dockhand, заполните **Variables / Overrides**, затем вернитесь в панель и нажмите **Deploy**.
 
 ## Границы безопасности
