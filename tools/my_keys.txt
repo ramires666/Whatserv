@@ -1,0 +1,1 @@
+Service: OpenAI | Account: brittbypassdiaa21@hotmail.com | SecretKey: S4AOKXHJIR6EGHYAUQZEKSX4QPSAM3UW
