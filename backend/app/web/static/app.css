@@ -67,9 +67,17 @@ h2 { margin-bottom: 6px; letter-spacing: -.03em; }
 .error-banner, .notice-banner { margin: 16px 0; padding: 12px 16px; border-radius: 10px; }
 .error-banner { border: 1px solid #6b3030; background: #3b1717; color: #ffadad; }
 .notice-banner { border: 1px solid #2c6649; background: #143925; color: #acf2ca; }
-.admin-grid { display: grid; grid-template-columns: minmax(260px, .75fr) 1.45fr; align-items: start; gap: 20px; }
+.admin-layout { display: grid; gap: 20px; }
 .panel { padding: 22px; }
-.form-panel { position: sticky; top: 20px; }
+.create-account-disclosure { padding: 0; overflow: clip; }
+.create-account-trigger, .account-card-summary { list-style: none; cursor: pointer; }
+.create-account-trigger::-webkit-details-marker, .account-card-summary::-webkit-details-marker { display: none; }
+.create-account-trigger { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 22px; background: linear-gradient(135deg, var(--green-dim), var(--panel)); }
+.create-account-trigger strong { display: block; color: var(--green); font-size: 1.05rem; }
+.create-account-trigger small { display: block; margin-top: 4px; color: var(--muted); }
+.disclosure-chevron { flex: 0 0 auto; color: var(--green); font-size: 1.5rem; transition: transform .18s ease; }
+details[open] > summary .disclosure-chevron { transform: rotate(180deg); }
+.form-panel { padding: 6px 22px 22px; border-top: 1px solid var(--line); }
 .form-panel label { display: grid; gap: 7px; margin: 18px 0; color: var(--muted); font-size: .82rem; font-weight: 700; }
 .form-panel input, .form-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 12px; outline: 0; background: #0d1210; color: var(--text); }
 .form-panel input:focus, .form-panel textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px #35e58d20; }
@@ -83,10 +91,12 @@ h2 { margin-bottom: 6px; letter-spacing: -.03em; }
 .form-panel .checkbox-row { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #75621d; border-radius: 10px; background: #332c1266; color: #ffe78a; cursor: pointer; }
 .form-panel .checkbox-row input { width: 18px; height: 18px; margin: 0; accent-color: var(--green); }
 .accounts-column { display: grid; gap: 14px; }
+.account-card { padding: 0; overflow: clip; }
+.account-card-summary { padding: 18px 22px; }
+.account-card-summary:hover { background: #17201d80; }
+.account-card-summary:focus-visible, .create-account-trigger:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+.account-card-body { padding: 18px 22px 22px; border-top: 1px solid var(--line); }
 .account-card h2 { margin-bottom: 0; }
-.account-card[data-capability-url] { cursor: pointer; }
-.account-open-link { display: block; color: inherit; text-decoration: none; }
-.account-open-link:hover h2 { color: var(--green); }
 .account-statuses { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .account-error { margin: 14px 0; color: var(--danger); font-size: .84rem; }
 .card-actions { justify-content: flex-start; margin-top: 18px; }
@@ -125,12 +135,13 @@ h2 { margin-bottom: 6px; letter-spacing: -.03em; }
 .capability-panel { display: grid; justify-items: start; gap: 18px; }
 .capability-url { width: 100%; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: #090d0b; color: #b6f8d1; font: .85rem ui-monospace, monospace; overflow-wrap: anywhere; }
 .text-link { color: var(--green); }
+.open-capability-link { display: inline-block; text-decoration: none; }
 .totp-empty { margin: 0; color: var(--muted); font: 750 .95rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 @media (max-width: 760px) {
   .shell { padding-top: 28px; }
-  .admin-grid { grid-template-columns: 1fr; }
-  .form-panel { position: static; }
+  .account-card-summary .account-main { align-items: flex-start; }
+  .account-card-summary .account-statuses { justify-content: flex-start; }
   .totp-card { padding: 22px 18px; }
   .credentials-card { display: grid; padding: 20px 18px; }
   .credential-actions { justify-content: flex-start; }

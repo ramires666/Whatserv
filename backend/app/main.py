@@ -411,6 +411,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 "notice": notice,
                 "error": error,
                 "form_values": form_values or {},
+                "open_create_form": bool(form_values),
                 "auto_refresh": auto_refresh,
             },
             status_code=status_code,

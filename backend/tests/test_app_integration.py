@@ -52,6 +52,9 @@ def test_full_account_qr_message_and_totp_flow():
 
         admin = client.get("/admin", auth=ADMIN_AUTH)
         assert admin.status_code == 200
+        assert '<details id="create-account-panel" class="panel create-account-disclosure">' in admin.text
+        assert 'class="create-account-trigger"' in admin.text
+        assert "Ввести аккаунт" in admin.text
         assert admin.text.index("Данные аккаунта</legend>") < admin.text.index("Google Authenticator</legend>")
         assert admin.text.index("Google Authenticator</legend>") < admin.text.index("WhatsApp</legend>")
         assert 'type="password"' in admin.text
@@ -172,8 +175,10 @@ def test_full_account_qr_message_and_totp_flow():
         assert "Добавлен:" in admin_after_create.text
         assert LOGIN_PASSWORD not in admin_after_create.text
         assert capability_path in admin_after_create.text
-        assert 'class="account-open-link"' in admin_after_create.text
-        assert 'data-capability-url="https://whatserv.test/inbox/' in admin_after_create.text
+        assert f'<details id="account-{account_id}" class="panel account-card"' in admin_after_create.text
+        assert 'class="account-card-summary"' in admin_after_create.text
+        assert 'class="primary-button open-capability-link"' in admin_after_create.text
+        assert 'data-capability-url=' not in admin_after_create.text
         assert 'target="_blank"' in admin_after_create.text
         assert 'data-copy-value="https://whatserv.test/inbox/' in admin_after_create.text
         assert "/static/admin.js?v=" in admin_after_create.text
@@ -265,6 +270,7 @@ def test_totp_is_expected_by_default_but_can_be_explicitly_omitted():
         )
         assert missing.status_code == 422
         assert "TOTP нужен по умолчанию" in missing.text
+        assert '<details id="create-account-panel" class="panel create-account-disclosure" open>' in missing.text
         assert "JBSWY3DPEHPK3PXP" not in missing.text
 
         oversized_secret = "A" * 2049

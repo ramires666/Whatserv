@@ -21,8 +21,16 @@
     {% if notice %}<div class="notice-banner">{{ notice }}</div>{% endif %}
     {% if error %}<div class="error-banner" role="alert">{{ error }}</div>{% endif %}
 
-    <section class="admin-grid">
-      <form id="create-account" class="panel form-panel" method="post" action="/admin/accounts" autocomplete="off">
+    <section class="admin-layout">
+      <details id="create-account-panel" class="panel create-account-disclosure"{% if open_create_form %} open{% endif %}>
+        <summary class="create-account-trigger">
+          <span>
+            <strong>Ввести аккаунт</strong>
+            <small>Логин → TOTP → WhatsApp</small>
+          </span>
+          <span class="disclosure-chevron" aria-hidden="true">⌄</span>
+        </summary>
+      <form id="create-account" class="form-panel" method="post" action="/admin/accounts" autocomplete="off">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <p class="eyebrow">НОВЫЙ АККАУНТ</p>
         <h2>Логин → TOTP → WhatsApp</h2>
@@ -70,6 +78,7 @@
 
         <button class="primary-button" type="submit">Создать и показать уникальную ссылку</button>
       </form>
+      </details>
 
       <section class="accounts-column">
         {% if not accounts %}
@@ -77,29 +86,26 @@
         {% endif %}
         {% for item in accounts %}
           {% set account = item.account %}
-          <article class="panel account-card" data-account-id="{{ account.id }}"{% if item.capability_url %} data-capability-url="{{ item.capability_url }}" role="link" tabindex="0"{% endif %}>
+          <details id="account-{{ account.id }}" class="panel account-card" data-account-id="{{ account.id }}">
+            <summary class="account-card-summary">
             <div class="account-main">
               <div>
-                {% if item.capability_url %}
-                  <a class="account-open-link" href="{{ item.capability_url }}" target="_blank" rel="noopener noreferrer" title="Открыть уникальную страницу в новой вкладке">
-                    <p class="eyebrow">{{ account.phone_e164 }}</p>
-                    <h2>{{ account.login_email or account.label }}</h2>
-                  </a>
-                {% else %}
-                  <p class="eyebrow">{{ account.phone_e164 }}</p>
-                  <h2>{{ account.login_email or account.label }}</h2>
-                {% endif %}
+                <p class="eyebrow">{{ account.phone_e164 }}</p>
+                <h2>{{ account.login_email or account.label }}</h2>
                 {% if account.wa_display_name %}<p class="account-name">WhatsApp: {{ account.wa_display_name }}</p>{% endif %}
                 {% if account.owner_name %}<p class="account-owner">У кого: <strong>{{ account.owner_name }}</strong></p>{% endif %}
-                {% if account.comment %}<p class="account-comment">{{ account.comment }}</p>{% endif %}
-                <p class="field-hint">Добавлен: <time class="local-time" datetime="{{ account.created_at.isoformat() }}">{{ account.created_at }}</time></p>
               </div>
               <div class="account-statuses">
                 <span class="status-pill {{ 'status-online' if item.has_credentials else 'status-missing' }}">{{ 'логин настроен' if item.has_credentials else 'нет логина' }}</span>
                 <span class="status-pill {{ 'status-online' if item.has_totp else 'status-missing' }}">{{ 'TOTP настроен' if item.has_totp else 'без TOTP' }}</span>
                 <span class="status-pill status-{{ account.wa_state }}">{{ account.wa_state }}</span>
               </div>
+              <span class="disclosure-chevron" aria-hidden="true">⌄</span>
             </div>
+            </summary>
+            <div class="account-card-body">
+            {% if account.comment %}<p class="account-comment">{{ account.comment }}</p>{% endif %}
+            <p class="field-hint">Добавлен: <time class="local-time" datetime="{{ account.created_at.isoformat() }}">{{ account.created_at }}</time></p>
             {% if account.last_error %}<p class="account-error">{{ account.last_error }}</p>{% endif %}
             {% if item.has_qr and account.wa_state in ['pending_qr', 'connecting'] %}
               <div class="qr-block">
@@ -210,6 +216,9 @@
             </details>
             <div class="card-actions">
               {% if item.capability_url %}
+                <a class="primary-button open-capability-link" href="{{ item.capability_url }}" target="_blank" rel="noopener noreferrer">Открыть уникальную страницу</a>
+              {% endif %}
+              {% if item.capability_url %}
                 <form method="post" action="/admin/accounts/{{ account.id }}/rotate-link" target="_blank">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <button class="ghost-button" type="submit">Новая ссылка</button>
@@ -234,7 +243,8 @@
                 </form>
               </details>
             {% endif %}
-          </article>
+            </div>
+          </details>
         {% endfor %}
       </section>
     </section>

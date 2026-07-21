@@ -5,6 +5,7 @@
   const createCode = document.querySelector('#create-totp-code');
   const withoutTotp = document.querySelector('#without-totp');
   const revealTimers = new Map();
+  const openPanelsStorageKey = 'whatserv-admin-open-panels';
   let formDirty = false;
 
   async function copyText(value) {
@@ -146,27 +147,31 @@
     button.addEventListener('click', () => {
       const details = document.getElementById(button.dataset.openDetails);
       if (!details) return;
+      const accountCard = details.closest('details.account-card');
+      if (accountCard) accountCard.open = true;
       details.open = true;
       details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       details.querySelector('input:not([type="hidden"]), textarea')?.focus();
     });
   }
 
-  for (const card of document.querySelectorAll('.account-card[data-capability-url]')) {
-    const openAccount = () => window.open(
-      card.dataset.capabilityUrl,
-      '_blank',
-      'noopener,noreferrer'
-    );
-    card.addEventListener('click', (event) => {
-      if (event.target.closest('a, button, input, textarea, label, summary, details, form')) return;
-      openAccount();
-    });
-    card.addEventListener('keydown', (event) => {
-      if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
-      event.preventDefault();
-      openAccount();
-    });
+  const persistentPanels = [...document.querySelectorAll('details.account-card')];
+  try {
+    const openPanelIds = new Set(JSON.parse(sessionStorage.getItem(openPanelsStorageKey) || '[]'));
+    for (const panel of persistentPanels) {
+      if (openPanelIds.has(panel.id)) panel.open = true;
+    }
+  } catch (_) {}
+  function persistOpenPanels() {
+    try {
+      sessionStorage.setItem(
+        openPanelsStorageKey,
+        JSON.stringify(persistentPanels.filter((panel) => panel.open).map((panel) => panel.id))
+      );
+    } catch (_) {}
+  }
+  for (const panel of persistentPanels) {
+    panel.addEventListener('toggle', persistOpenPanels);
   }
 
   function formatLocalTime(value) {
@@ -235,7 +240,11 @@
   if (document.body.dataset.autoRefresh === 'true') {
     setInterval(() => {
       const editing = document.activeElement?.matches('input, textarea, select');
-      if (!document.hidden && !formDirty && !editing) window.location.reload();
+      const creating = document.querySelector('#create-account-panel')?.open;
+      if (!document.hidden && !formDirty && !editing && !creating) {
+        persistOpenPanels();
+        window.location.reload();
+      }
     }, 5000);
   }
   void refreshAccountSummaries();
