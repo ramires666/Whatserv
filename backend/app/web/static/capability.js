@@ -1,19 +1,24 @@
 async function copyText(value) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {}
+  }
   try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch (_) {
     const area = document.createElement('textarea');
     area.value = value;
     area.setAttribute('readonly', '');
     area.style.position = 'fixed';
     area.style.opacity = '0';
     document.body.append(area);
+    area.focus();
     area.select();
+    area.setSelectionRange(0, area.value.length);
     const copied = document.execCommand('copy');
     area.remove();
     return copied;
-  }
+  } catch (_) { return false; }
 }
 
 document.querySelector('#copy-capability')?.addEventListener('click', async (event) => {

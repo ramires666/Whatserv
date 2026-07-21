@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Управление · WhatServ</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
 </head>
 <body data-auto-refresh="{{ 'true' if auto_refresh else 'false' }}">
   <main class="shell admin-shell">
@@ -77,11 +77,18 @@
         {% endif %}
         {% for item in accounts %}
           {% set account = item.account %}
-          <article class="panel account-card" data-account-id="{{ account.id }}">
+          <article class="panel account-card" data-account-id="{{ account.id }}"{% if item.capability_url %} data-capability-url="{{ item.capability_url }}" role="link" tabindex="0"{% endif %}>
             <div class="account-main">
               <div>
-                <p class="eyebrow">{{ account.phone_e164 }}</p>
-                <h2>{{ account.login_email or account.label }}</h2>
+                {% if item.capability_url %}
+                  <a class="account-open-link" href="{{ item.capability_url }}" target="_blank" rel="noopener noreferrer" title="Открыть уникальную страницу в новой вкладке">
+                    <p class="eyebrow">{{ account.phone_e164 }}</p>
+                    <h2>{{ account.login_email or account.label }}</h2>
+                  </a>
+                {% else %}
+                  <p class="eyebrow">{{ account.phone_e164 }}</p>
+                  <h2>{{ account.login_email or account.label }}</h2>
+                {% endif %}
                 {% if account.wa_display_name %}<p class="account-name">WhatsApp: {{ account.wa_display_name }}</p>{% endif %}
                 {% if account.owner_name %}<p class="account-owner">У кого: <strong>{{ account.owner_name }}</strong></p>{% endif %}
                 {% if account.comment %}<p class="account-comment">{{ account.comment }}</p>{% endif %}
@@ -114,17 +121,24 @@
               </form>
             </details>
             <section class="account-live-summary" aria-label="Текущие данные аккаунта">
-              <button class="summary-copy" type="button" data-summary-totp="{{ account.id }}" disabled>
-                <span class="field-hint">Текущий TOTP</span>
-                <strong>—</strong>
-              </button>
+              {% if item.has_totp %}
+                <button class="summary-copy" type="button" data-summary-totp="{{ account.id }}" disabled>
+                  <span class="field-hint">Текущий TOTP</span>
+                  <strong>—</strong>
+                </button>
+              {% else %}
+                <div class="summary-copy summary-empty">
+                  <span class="field-hint">TOTP не введён</span>
+                  <button class="ghost-button" type="button" data-open-details="totp-settings-{{ account.id }}">Ввести TOTP</button>
+                </div>
+              {% endif %}
               <button class="summary-copy summary-message" type="button" data-summary-message="{{ account.id }}" disabled>
                 <span class="field-hint">Последнее сообщение</span>
                 <strong>Пока нет сообщений</strong>
                 <small></small>
               </button>
             </section>
-            <details class="totp-settings">
+            <details id="credentials-settings-{{ account.id }}" class="totp-settings">
               <summary>{{ 'Заменить логин и пароль' if item.has_credentials else 'Добавить логин и пароль' }}</summary>
               <form method="post" action="/admin/accounts/{{ account.id }}/credentials" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -136,28 +150,43 @@
               </form>
             </details>
             <div class="account-secrets">
-              <div class="secret-display-row">
-                <div>
-                  <p class="field-hint">Пароль аккаунта</p>
-                  <p id="admin-password-{{ account.id }}" class="secret-value">••••••••••••</p>
+              {% if item.has_credentials %}
+                <div class="secret-display-row">
+                  <div>
+                    <p class="field-hint">Пароль аккаунта</p>
+                    <p id="admin-password-{{ account.id }}" class="secret-value">••••••••••••</p>
+                  </div>
+                  <div class="credential-actions">
+                    <button class="ghost-button" type="button" data-reveal-credentials="{{ account.id }}">Показать</button>
+                    <button class="ghost-button" type="button" data-copy-target="admin-password-{{ account.id }}" disabled>Копировать</button>
+                  </div>
                 </div>
-                <div class="credential-actions">
-                  <button class="ghost-button" type="button" data-reveal-credentials="{{ account.id }}" {{ 'disabled' if not item.has_credentials else '' }}>Показать</button>
-                  <button class="ghost-button" type="button" data-copy-target="admin-password-{{ account.id }}" disabled>Копировать</button>
+              {% else %}
+                <div class="secret-display-row">
+                  <p class="field-hint">Пароль не введён</p>
+                  <button class="ghost-button" type="button" data-open-details="credentials-settings-{{ account.id }}">Ввести пароль</button>
                 </div>
-              </div>
+              {% endif %}
               <div class="secret-display-row">
                 <div>
                   <p class="field-hint">Текущая уникальная ссылка</p>
-                  <p id="admin-link-{{ account.id }}" class="secret-value capability-value">{{ 'Нажмите «Показать»' if item.has_recoverable_link else 'Старая ссылка невосстановима — выпустите новую' }}</p>
+                  {% if item.capability_url %}
+                    <a id="admin-link-{{ account.id }}" class="secret-value capability-value text-link" href="{{ item.capability_url }}" target="_blank" rel="noopener noreferrer">{{ item.capability_url }}</a>
+                  {% else %}
+                    <p class="secret-value capability-value">Старая ссылка не сохранена — выпустите новую</p>
+                  {% endif %}
                 </div>
-                <div class="credential-actions">
-                  <button class="ghost-button" type="button" data-reveal-link="{{ account.id }}" {{ 'disabled' if not item.has_recoverable_link else '' }}>Показать</button>
-                  <button class="ghost-button" type="button" data-copy-target="admin-link-{{ account.id }}" disabled>Копировать</button>
-                </div>
+                {% if item.capability_url %}
+                  <button class="ghost-button" type="button" data-copy-value="{{ item.capability_url }}">Копировать ссылку</button>
+                {% else %}
+                  <form method="post" action="/admin/accounts/{{ account.id }}/rotate-link" target="_blank">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="primary-button" type="submit">Выпустить и открыть ссылку</button>
+                  </form>
+                {% endif %}
               </div>
             </div>
-            <details class="totp-settings">
+            <details id="totp-settings-{{ account.id }}" class="totp-settings">
               <summary>{{ 'Заменить TOTP' if item.has_totp else 'Добавить TOTP' }}</summary>
               <form method="post" action="/admin/accounts/{{ account.id }}/totp" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -180,10 +209,12 @@
               {% endif %}
             </details>
             <div class="card-actions">
-              <form method="post" action="/admin/accounts/{{ account.id }}/rotate-link">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="ghost-button" type="submit">Новая ссылка</button>
-              </form>
+              {% if item.capability_url %}
+                <form method="post" action="/admin/accounts/{{ account.id }}/rotate-link" target="_blank">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="ghost-button" type="submit">Новая ссылка</button>
+                </form>
+              {% endif %}
               <form method="post" action="/admin/accounts/{{ account.id }}/toggle">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="ghost-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'Отключить' if account.enabled else 'Включить' }}</button>
@@ -208,6 +239,6 @@
       </section>
     </section>
   </main>
-  <script src="/static/admin.js" defer></script>
+  <script src="/static/admin.js?v={{ static_version }}" defer></script>
 </body>
 </html>

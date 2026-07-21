@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.models import Account
 from app.totp import totp_code
 
 
@@ -170,7 +171,12 @@ def test_full_account_qr_message_and_totp_flow():
         assert "Основной Codex-аккаунт" in admin_after_create.text
         assert "Добавлен:" in admin_after_create.text
         assert LOGIN_PASSWORD not in admin_after_create.text
-        assert capability_path not in admin_after_create.text
+        assert capability_path in admin_after_create.text
+        assert 'class="account-open-link"' in admin_after_create.text
+        assert 'data-capability-url="https://whatserv.test/inbox/' in admin_after_create.text
+        assert 'target="_blank"' in admin_after_create.text
+        assert 'data-copy-value="https://whatserv.test/inbox/' in admin_after_create.text
+        assert "/static/admin.js?v=" in admin_after_create.text
 
         assert client.get("/admin/account-summaries").status_code == 401
         summaries = client.get("/admin/account-summaries", auth=ADMIN_AUTH).json()
@@ -297,6 +303,36 @@ def test_totp_is_expected_by_default_but_can_be_explicitly_omitted():
         snapshot = client.get(capability_path.replace("/inbox/", "/api/public/") + "/snapshot")
         assert snapshot.status_code == 200
         assert snapshot.json()["totp"] is None
+        admin_without_totp = client.get("/admin", auth=ADMIN_AUTH)
+        assert 'data-summary-totp=' not in admin_without_totp.text
+        assert "Ввести TOTP" in admin_without_totp.text
+        inbox_without_totp = client.get(capability_path)
+        assert "TOTP НЕ ВВЕДЁН" in inbox_without_totp.text
+        assert 'id="totp-code"' in inbox_without_totp.text
+        assert 'id="totp-code" class="totp-code"' in inbox_without_totp.text
+        assert "disabled hidden" in inbox_without_totp.text
+
+        account_id = client.get(
+            "/api/internal/accounts", headers=headers
+        ).json()["items"][0]["id"]
+
+        async def clear_legacy_credentials():
+            async with client.app.state.session_factory() as session:
+                account = await session.get(Account, account_id)
+                account.login_email = None
+                account.encrypted_login_password = None
+                await session.commit()
+
+        client.portal.call(clear_legacy_credentials)
+        legacy_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert "Пароль не введён" in legacy_admin.text
+        assert "Ввести пароль" in legacy_admin.text
+        assert 'data-reveal-credentials=' not in legacy_admin.text
+        assert 'data-copy-target="admin-password-' not in legacy_admin.text
+        legacy_inbox = client.get(capability_path)
+        assert "НЕ ВВЕДЁН" in legacy_inbox.text
+        assert 'id="reveal-password"' not in legacy_inbox.text
+        assert 'id="copy-password"' not in legacy_inbox.text
 
 
 def test_admin_can_add_replace_and_remove_totp_without_revealing_secret():

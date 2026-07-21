@@ -8,21 +8,26 @@
   let formDirty = false;
 
   async function copyText(value) {
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch (_) {}
+    }
     try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch (_) {
       const area = document.createElement('textarea');
       area.value = value;
       area.setAttribute('readonly', '');
       area.style.position = 'fixed';
       area.style.opacity = '0';
       document.body.append(area);
+      area.focus();
       area.select();
+      area.setSelectionRange(0, area.value.length);
       const copied = document.execCommand('copy');
       area.remove();
       return copied;
-    }
+    } catch (_) { return false; }
   }
 
   function syncCreateTotpRequirement() {
@@ -68,9 +73,7 @@
   function hideRevealedValue(targetId, revealButton) {
     const target = document.getElementById(targetId);
     if (!target) return;
-    target.textContent = targetId.startsWith('admin-password-')
-      ? '••••••••••••'
-      : 'Нажмите «Показать»';
+    target.textContent = '••••••••••••';
     delete target.dataset.copyValue;
     const copyButton = copyButtonFor(targetId);
     if (copyButton) copyButton.disabled = true;
@@ -91,6 +94,8 @@
       const accountId = button.dataset.revealCredentials;
       const targetId = `admin-password-${accountId}`;
       const target = document.getElementById(targetId);
+      const copyButton = copyButtonFor(targetId);
+      if (!target || !copyButton) return;
       if (target?.dataset.copyValue) {
         hideRevealedValue(targetId, button);
         return;
@@ -104,44 +109,11 @@
         const credentials = await response.json();
         target.textContent = credentials.password;
         target.dataset.copyValue = credentials.password;
-        copyButtonFor(targetId).disabled = false;
+        copyButton.disabled = false;
         button.textContent = 'Скрыть';
         scheduleHide(targetId, button);
       } catch (_) {
         target.textContent = 'Не удалось получить пароль';
-      } finally {
-        button.disabled = false;
-      }
-    });
-  }
-
-  for (const button of document.querySelectorAll('[data-reveal-link]')) {
-    button.addEventListener('click', async () => {
-      const accountId = button.dataset.revealLink;
-      const targetId = `admin-link-${accountId}`;
-      const target = document.getElementById(targetId);
-      if (target?.dataset.copyValue) {
-        hideRevealedValue(targetId, button);
-        return;
-      }
-      button.disabled = true;
-      try {
-        const response = await fetch(`/admin/accounts/${encodeURIComponent(accountId)}/capability`, {
-          cache: 'no-store', credentials: 'same-origin'
-        });
-        if (response.status === 410) {
-          target.textContent = 'Ссылка истекла — выпустите новую';
-          return;
-        }
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const capability = await response.json();
-        target.textContent = capability.url;
-        target.dataset.copyValue = capability.url;
-        copyButtonFor(targetId).disabled = false;
-        button.textContent = 'Скрыть';
-        scheduleHide(targetId, button);
-      } catch (_) {
-        target.textContent = 'Не удалось получить ссылку';
       } finally {
         button.disabled = false;
       }
@@ -157,6 +129,43 @@
         button.textContent = await copyText(value) ? 'Скопировано' : 'Ошибка';
       } catch (_) { button.textContent = 'Ошибка'; }
       setTimeout(() => { button.textContent = 'Копировать'; }, 1800);
+    });
+  }
+
+  for (const button of document.querySelectorAll('button[data-copy-value]')) {
+    button.addEventListener('click', async () => {
+      const original = button.textContent;
+      button.textContent = await copyText(button.dataset.copyValue)
+        ? 'Скопировано'
+        : 'Выделите ссылку вручную';
+      setTimeout(() => { button.textContent = original; }, 1800);
+    });
+  }
+
+  for (const button of document.querySelectorAll('[data-open-details]')) {
+    button.addEventListener('click', () => {
+      const details = document.getElementById(button.dataset.openDetails);
+      if (!details) return;
+      details.open = true;
+      details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      details.querySelector('input:not([type="hidden"]), textarea')?.focus();
+    });
+  }
+
+  for (const card of document.querySelectorAll('.account-card[data-capability-url]')) {
+    const openAccount = () => window.open(
+      card.dataset.capabilityUrl,
+      '_blank',
+      'noopener,noreferrer'
+    );
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('a, button, input, textarea, label, summary, details, form')) return;
+      openAccount();
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openAccount();
     });
   }
 
@@ -210,6 +219,11 @@
           messageButton.querySelector('small').textContent = `${sender} · ${formatLocalTime(message.received_at)}`;
           messageButton.dataset.copyValue = body;
           messageButton.disabled = false;
+        } else if (messageButton) {
+          messageButton.querySelector('strong').textContent = 'Пока нет сообщений';
+          messageButton.querySelector('small').textContent = '';
+          delete messageButton.dataset.copyValue;
+          messageButton.disabled = true;
         }
       }
     } catch (_) {}
@@ -238,15 +252,13 @@
         toggle.setAttribute('aria-label', 'Показать TOTP-секрет');
       }
     }
-    for (const target of document.querySelectorAll('.secret-value[data-copy-value]')) {
-      const revealButton = target.id.startsWith('admin-password-')
-        ? document.querySelector(`[data-reveal-credentials="${CSS.escape(target.id.replace('admin-password-', ''))}"]`)
-        : document.querySelector(`[data-reveal-link="${CSS.escape(target.id.replace('admin-link-', ''))}"]`);
+    for (const target of document.querySelectorAll('[id^="admin-password-"][data-copy-value]')) {
+      const revealButton = document.querySelector(`[data-reveal-credentials="${CSS.escape(target.id.replace('admin-password-', ''))}"]`);
       hideRevealedValue(target.id, revealButton);
     }
   });
   window.addEventListener('pagehide', () => {
-    for (const target of document.querySelectorAll('.secret-value[data-copy-value]')) {
+    for (const target of document.querySelectorAll('[id^="admin-password-"][data-copy-value]')) {
       hideRevealedValue(target.id, null);
     }
   });

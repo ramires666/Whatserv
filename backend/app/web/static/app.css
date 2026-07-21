@@ -84,6 +84,9 @@ h2 { margin-bottom: 6px; letter-spacing: -.03em; }
 .form-panel .checkbox-row input { width: 18px; height: 18px; margin: 0; accent-color: var(--green); }
 .accounts-column { display: grid; gap: 14px; }
 .account-card h2 { margin-bottom: 0; }
+.account-card[data-capability-url] { cursor: pointer; }
+.account-open-link { display: block; color: inherit; text-decoration: none; }
+.account-open-link:hover h2 { color: var(--green); }
 .account-statuses { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .account-error { margin: 14px 0; color: var(--danger); font-size: .84rem; }
 .card-actions { justify-content: flex-start; margin-top: 18px; }
@@ -114,12 +117,15 @@ h2 { margin-bottom: 6px; letter-spacing: -.03em; }
 .account-live-summary { display: grid; grid-template-columns: minmax(120px, .45fr) minmax(0, 1.55fr); gap: 10px; margin-top: 16px; }
 .summary-copy { display: grid; min-width: 0; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #0d1210; color: var(--text); text-align: left; cursor: copy; }
 .summary-copy:disabled { cursor: default; opacity: .65; }
+.summary-empty { cursor: default; }
+.summary-empty .ghost-button { justify-self: start; }
 .summary-copy strong { font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-copy small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-copy.copied { border-color: var(--green); background: var(--green-dim); }
 .capability-panel { display: grid; justify-items: start; gap: 18px; }
 .capability-url { width: 100%; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: #090d0b; color: #b6f8d1; font: .85rem ui-monospace, monospace; overflow-wrap: anywhere; }
 .text-link { color: var(--green); }
+.totp-empty { margin: 0; color: var(--muted); font: 750 .95rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 @media (max-width: 760px) {
   .shell { padding-top: 28px; }

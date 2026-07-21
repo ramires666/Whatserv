@@ -5,6 +5,7 @@
   const status = document.querySelector('#connection');
   const error = document.querySelector('#error');
   const code = document.querySelector('#totp-code');
+  const emptyTotp = document.querySelector('#totp-empty');
   const countdownValue = document.querySelector('#countdown-value');
   const countdownRing = document.querySelector('#countdown-ring');
   const passwordNode = document.querySelector('#credential-password');
@@ -19,21 +20,26 @@
   let passwordTimer = null;
 
   async function copyText(value) {
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch (_) {}
+    }
     try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch (_) {
       const area = document.createElement('textarea');
       area.value = value;
       area.setAttribute('readonly', '');
       area.style.position = 'fixed';
       area.style.opacity = '0';
       document.body.append(area);
+      area.focus();
       area.select();
+      area.setSelectionRange(0, area.value.length);
       const copied = document.execCommand('copy');
       area.remove();
       return copied;
-    }
+    } catch (_) { return false; }
   }
 
   function formatTime(value) {
@@ -46,6 +52,7 @@
 
   function hidePassword() {
     currentPassword = '';
+    if (!passwordNode || !copyPasswordButton || !revealPasswordButton) return;
     passwordNode.textContent = '••••••••••••';
     copyPasswordButton.disabled = true;
     revealPasswordButton.textContent = 'Показать пароль';
@@ -156,6 +163,8 @@
         currentTotp = value;
         code.textContent = value.length === 6 ? `${value.slice(0, 3)} ${value.slice(3)}` : value;
         code.disabled = false;
+        code.hidden = false;
+        emptyTotp.hidden = true;
         period = data.totp.period;
         const serverTime = Date.parse(data.totp.server_time);
         const validUntil = Date.parse(data.totp.valid_until);
@@ -166,6 +175,8 @@
         currentTotp = '';
         code.textContent = 'НЕ НАСТРОЕН';
         code.disabled = true;
+        code.hidden = true;
+        emptyTotp.hidden = false;
         expiresAt = 0;
       }
       error.hidden = true;
@@ -202,7 +213,7 @@
     setTimeout(() => code.classList.remove('copied'), 1000);
   });
 
-  revealPasswordButton.addEventListener('click', async () => {
+  revealPasswordButton?.addEventListener('click', async () => {
     if (currentPassword) {
       hidePassword();
       return;
@@ -226,7 +237,7 @@
     }
   });
 
-  copyPasswordButton.addEventListener('click', async () => {
+  copyPasswordButton?.addEventListener('click', async () => {
     if (!currentPassword) return;
     copyPasswordButton.textContent = await copyText(currentPassword)
       ? 'Скопировано'
@@ -239,7 +250,7 @@
   });
   window.addEventListener('pagehide', hidePassword);
 
-  document.querySelector('#refresh').addEventListener('click', refresh);
+  document.querySelector('#refresh')?.addEventListener('click', refresh);
   void refresh();
   setInterval(tick, 250);
   setInterval(refresh, 3000);

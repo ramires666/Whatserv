@@ -63,6 +63,14 @@ from .totp import (
 logger = logging.getLogger("whatserv")
 WEB_DIR = Path(__file__).parent / "web"
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+STATIC_VERSION = hashlib.sha256(
+    b"".join(
+        path.read_bytes()
+        for path in sorted((WEB_DIR / "static").iterdir())
+        if path.is_file()
+    )
+).hexdigest()[:12]
+templates.env.globals["static_version"] = STATIC_VERSION
 basic_scheme = HTTPBasic(auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 PHONE_PATH_RE = re.compile(r"^[1-9]\d{7,14}$")
@@ -344,6 +352,10 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             await session.scalars(select(Account).order_by(Account.created_at.desc()))
         )
         cipher = TotpSeedCipher(_secret(request.app.state.settings, "qr_fernet_key"))
+        credential_cipher = CredentialCipher(
+            _secret(request.app.state.settings, "credential_fernet_key")
+        )
+        token_pepper = _secret(request.app.state.settings, "access_token_pepper")
         accounts = []
         auto_refresh = False
         for account in account_rows:
@@ -356,6 +368,19 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                     logger.warning(
                         "pairing_code_decryption_failed", extra={"account_id": account.id}
                     )
+            capability_url = None
+            if account.encrypted_access_token and _active_until(account.capability_expires_at):
+                try:
+                    token = credential_cipher.decrypt(account.encrypted_access_token)
+                    if verify_capability_token(token, account.access_token_hash, token_pepper):
+                        capability_url = _capability_url(
+                            request.app.state.settings, account.phone_e164, token
+                        )
+                except Exception:
+                    logger.warning(
+                        "admin_capability_decryption_failed",
+                        extra={"account_id": account.id},
+                    )
             accounts.append(
                 {
                     "account": account,
@@ -365,7 +390,8 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                     "has_credentials": bool(
                         account.login_email and account.encrypted_login_password
                     ),
-                    "has_recoverable_link": bool(account.encrypted_access_token),
+                    "capability_url": capability_url,
+                    "has_recoverable_link": capability_url is not None,
                 }
             )
             if account.wa_state in {
@@ -1031,6 +1057,10 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             context={
                 "label": account.wa_display_name or account.label or "WhatsApp",
                 "login_email": account.login_email,
+                "has_credentials": bool(
+                    account.login_email and account.encrypted_login_password
+                ),
+                "has_totp": bool(account.encrypted_totp_secret),
                 "phone": account.phone_e164,
                 "account_created_at": account.created_at,
                 "snapshot_url": f"/api/public/{phone_digits}/{token}/snapshot",

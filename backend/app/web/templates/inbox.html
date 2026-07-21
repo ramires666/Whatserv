@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>{{ label }} · WhatServ</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
 </head>
 <body class="inbox-page" data-snapshot-url="{{ snapshot_url }}" data-credentials-url="{{ credentials_url }}">
   <main class="shell">
@@ -23,18 +23,21 @@
       <div>
         <p id="credentials-title" class="eyebrow">ДАННЫЕ ДЛЯ ВХОДА</p>
         <p class="credential-email">{{ login_email or 'НЕ НАСТРОЕН' }}</p>
-        <p id="credential-password" class="credential-password">••••••••••••</p>
+        <p id="credential-password" class="credential-password">{{ '••••••••••••' if has_credentials else 'НЕ ВВЕДЁН' }}</p>
       </div>
-      <div class="credential-actions">
-        <button id="reveal-password" class="ghost-button" type="button" {{ 'disabled' if not login_email else '' }}>Показать пароль</button>
-        <button id="copy-password" class="ghost-button" type="button" disabled>Скопировать</button>
-      </div>
+      {% if has_credentials %}
+        <div class="credential-actions">
+          <button id="reveal-password" class="ghost-button" type="button">Показать пароль</button>
+          <button id="copy-password" class="ghost-button" type="button" disabled>Скопировать</button>
+        </div>
+      {% endif %}
     </section>
 
     <section class="totp-card" aria-labelledby="totp-title">
       <div>
         <p id="totp-title" class="eyebrow">GOOGLE AUTHENTICATOR</p>
-        <button id="totp-code" class="totp-code" type="button" aria-live="polite" title="Нажмите, чтобы скопировать" disabled>——— ———</button>
+        <button id="totp-code" class="totp-code" type="button" aria-live="polite" title="Нажмите, чтобы скопировать" disabled {{ 'hidden' if not has_totp else '' }}>——— ———</button>
+        <p id="totp-empty" class="totp-empty" {{ 'hidden' if has_totp else '' }}>TOTP НЕ ВВЕДЁН</p>
       </div>
       <div class="countdown" aria-label="Осталось секунд">
         <svg viewBox="0 0 44 44" role="img">
@@ -59,6 +62,6 @@
       </ol>
     </section>
   </main>
-  <script src="/static/inbox.js" defer></script>
+  <script src="/static/inbox.js?v={{ static_version }}" defer></script>
 </body>
 </html>
