@@ -25,7 +25,10 @@ class Account(TimestampMixin, Base):
     __tablename__ = "accounts"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    phone_e164: Mapped[str] = mapped_column(String(16), unique=True, index=True, nullable=False)
+    # Kept under the legacy attribute name for API/database compatibility.  It is
+    # display metadata, not an account identifier, and may contain any user-entered
+    # phone description.
+    phone_e164: Mapped[str | None] = mapped_column(String(120), index=True)
     label: Mapped[str | None] = mapped_column(String(120))
     owner_name: Mapped[str | None] = mapped_column(String(120))
     comment: Mapped[str | None] = mapped_column(Text)

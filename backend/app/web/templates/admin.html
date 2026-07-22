@@ -64,7 +64,7 @@
           </div>
           <p class="field-hint">Можно вставить Base32-ключ либо целиком ссылку <code>otpauth://totp/…</code>. Секрет проверяется по формату, шифруется и больше не показывается.</p>
           <label class="checkbox-row">
-            <input id="without-totp" name="without_totp" type="checkbox" value="true">
+            <input id="without-totp" name="without_totp" type="checkbox" value="true"{% if form_values.get('without_totp') %} checked{% endif %}>
             <span>Редкое исключение: этот аккаунт без TOTP</span>
           </label>
         </fieldset>
@@ -72,12 +72,13 @@
         <fieldset class="form-step">
           <legend><span>3</span> WhatsApp</legend>
           <label>Телефон
-            <input name="phone" inputmode="tel" placeholder="+77001234567" value="{{ form_values.get('phone', '') }}" required>
+            <input id="create-phone" name="phone" inputmode="tel" maxlength="120" placeholder="Любой номер или подпись" value="{{ form_values.get('phone', '') }}">
           </label>
-          <p class="field-hint">После создания сохраните уникальную ссылку, затем отсканируйте появившийся QR через «Связанные устройства» WhatsApp.</p>
+          <p class="field-hint">Телефон — необязательная подпись. Он не идентифицирует аккаунт и не проверяется по формату. Вход в WhatsApp запускается только отдельной кнопкой.</p>
         </fieldset>
 
-        <button class="primary-button" type="submit">Создать и показать уникальную ссылку</button>
+        <button class="primary-button" type="submit">Сохранить аккаунт</button>
+        <button class="primary-button" type="submit" name="start_whatsapp" value="true" data-create-whatsapp-login{% if not form_values.get('phone') %} hidden{% endif %}>Сохранить и войти через QR WhatsApp</button>
       </form>
       </details>
 
@@ -91,7 +92,7 @@
             <summary class="account-card-summary">
             <div class="account-main">
               <div>
-                <p class="eyebrow">{{ account.phone_e164 }}</p>
+                <p class="eyebrow">{{ account.phone_e164 or 'Телефон не указан' }}</p>
                 <h2>{{ account.label or account.login_email or account.phone_e164 }}</h2>
                 {% if account.login_email %}<p class="account-name">Email: {{ account.login_email }}</p>{% endif %}
                 {% if account.wa_display_name %}<p class="account-name">WhatsApp: {{ account.wa_display_name }}</p>{% endif %}
@@ -122,14 +123,14 @@
               <form method="post" action="/admin/accounts/{{ account.id }}/metadata" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <label for="phone-{{ account.id }}">Телефон</label>
-                <input id="phone-{{ account.id }}" name="phone" inputmode="tel" maxlength="40" value="{{ account.phone_e164 }}" required>
+                <input id="phone-{{ account.id }}" name="phone" inputmode="tel" maxlength="120" value="{{ account.phone_e164 or '' }}" placeholder="Любой номер или подпись">
                 <label for="label-{{ account.id }}">Название</label>
                 <input id="label-{{ account.id }}" name="label" maxlength="120" value="{{ account.label or '' }}">
                 <label for="owner-{{ account.id }}">У кого</label>
                 <input id="owner-{{ account.id }}" name="owner_name" maxlength="120" value="{{ account.owner_name or '' }}">
                 <label for="comment-{{ account.id }}">Комментарий</label>
                 <textarea id="comment-{{ account.id }}" name="comment" maxlength="2000" rows="3">{{ account.comment or '' }}</textarea>
-                <p class="field-hint">После изменения телефона прежний адрес уникальной страницы перестанет работать; актуальная ссылка останется в карточке.</p>
+                <p class="field-hint">Телефон хранится как подпись и не влияет на email аккаунта или его уникальную ссылку.</p>
                 <button class="ghost-button" type="submit">Сохранить данные</button>
               </form>
             </details>
@@ -229,14 +230,27 @@
                   <button class="ghost-button" type="submit">Новая ссылка</button>
                 </form>
               {% endif %}
-              <form method="post" action="/admin/accounts/{{ account.id }}/toggle">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="ghost-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'Отключить' if account.enabled else 'Включить' }}</button>
-              </form>
-              <form method="post" action="/admin/accounts/{{ account.id }}/whatsapp/logout" data-confirm="Получить новый QR для {{ account.phone_e164 }}? Текущая привязка WhatsApp будет завершена.">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="primary-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'QR запрошен…' if account.wa_logout_command_id else ('Включить и получить QR WhatsApp' if not account.enabled else 'Получить новый QR WhatsApp') }}</button>
-              </form>
+              {% if account.enabled %}
+                <form method="post" action="/admin/accounts/{{ account.id }}/toggle">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="ghost-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>Отключить WhatsApp</button>
+                </form>
+              {% endif %}
+              {% if account.phone_e164 %}
+                {% if account.enabled %}
+                  <form method="post" action="/admin/accounts/{{ account.id }}/whatsapp/logout" data-confirm="Получить новый QR для {{ account.phone_e164 }}? Текущая привязка WhatsApp будет завершена.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="primary-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'QR запрошен…' if account.wa_logout_command_id else 'Получить новый QR WhatsApp' }}</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="/admin/accounts/{{ account.id }}/whatsapp/connect">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="primary-button" type="submit">Войти через QR WhatsApp</button>
+                  </form>
+                {% endif %}
+              {% else %}
+                <p class="field-hint">Введите телефон в данных аккаунта — после этого появится кнопка входа через QR WhatsApp.</p>
+              {% endif %}
             </div>
             {% if account.wa_logout_command_id %}
               <div class="logout-pending" role="status">Выход из WhatsApp запрошен. Worker удалит сессию и подготовит новый QR.</div>

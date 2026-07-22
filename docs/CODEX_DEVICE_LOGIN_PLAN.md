@@ -104,7 +104,7 @@ flowchart TD
 - кнопка отмены;
 - итог `authenticated`, `failed`, `cancelled` или `expired`.
 
-Device code не должен отображаться на существующей долгоживущей странице `/inbox/{phone}/{token}` или передаваться через WhatsApp. Эти подсистемы остаются разными security domains.
+Device code не должен отображаться на существующей долгоживущей странице `/inbox/{account_id}/{token}` или передаваться через WhatsApp. Эти подсистемы остаются разными security domains.
 
 ## Предварительный API WhatServ
 

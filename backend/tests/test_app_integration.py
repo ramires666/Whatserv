@@ -60,6 +60,10 @@ def test_full_account_qr_message_and_totp_flow():
         assert 'type="password"' in admin.text
         assert "otpauth://totp" in admin.text
         assert 'name="totp_current_code"' not in admin.text
+        assert "data-create-whatsapp-login hidden" in admin.text
+        admin_script = client.get("/static/admin.js")
+        assert "createForm?.addEventListener('submit'" in admin_script.text
+        assert "event.preventDefault()" in admin_script.text
         csrf = extract_csrf(admin.text)
 
         created = client.post(
@@ -74,11 +78,15 @@ def test_full_account_qr_message_and_totp_flow():
                 "label": "Основной аккаунт",
                 "phone": "+1 (415) 555-2671",
                 "totp_secret": "JBSW Y3DP EHPK 3PXP",
+                "start_whatsapp": "true",
             },
         )
         assert created.status_code == 200
         capability_path = extract_capability_path(created.text)
-        assert "/inbox/14155552671/" in capability_path
+        assert re.fullmatch(
+            r"/inbox/[0-9a-f-]{36}/[^/]+",
+            capability_path,
+        )
 
         assert client.get("/api/internal/accounts").status_code == 401
         headers = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
@@ -141,7 +149,7 @@ def test_full_account_qr_message_and_totp_flow():
         assert inbox.status_code == 200
         assert inbox.headers["cache-control"].startswith("no-store")
         assert inbox.headers["referrer-policy"] == "no-referrer"
-        assert "+14155552671" in inbox.text
+        assert "+1 (415) 555-2671" in inbox.text
         assert "Рабочий WhatsApp" in inbox.text
         assert "Аккаунт добавлен" in inbox.text
         assert LOGIN_EMAIL in inbox.text
@@ -208,7 +216,8 @@ def test_full_account_qr_message_and_totp_flow():
         )
         assert metadata.status_code == 303
         updated_admin = client.get("/admin", auth=ADMIN_AUTH)
-        assert "+14155552672" in updated_admin.text
+        assert "+1 (415) 555-2672" in updated_admin.text
+        assert capability_path in updated_admin.text
         assert "Резервный WhatsApp" in updated_admin.text
         assert "У кого: <strong>Пётр</strong>" in updated_admin.text
         assert "Резервный аккаунт" in updated_admin.text
@@ -365,6 +374,138 @@ def test_totp_is_expected_by_default_but_can_be_explicitly_omitted():
         assert 'id="copy-password"' not in legacy_inbox.text
 
 
+def test_phone_is_optional_freeform_metadata_and_whatsapp_requires_explicit_start():
+    with TestClient(make_app()) as client:
+        admin = client.get("/admin", auth=ADMIN_AUTH)
+        created = client.post(
+            "/admin/accounts",
+            auth=ADMIN_AUTH,
+            data={
+                "csrf_token": extract_csrf(admin.text),
+                "login_email": LOGIN_EMAIL,
+                "login_password": LOGIN_PASSWORD,
+                "without_totp": "true",
+            },
+        )
+        assert created.status_code == 200
+        capability_path = extract_capability_path(created.text)
+        disabled_inbox = client.get(capability_path)
+        assert disabled_inbox.status_code == 200
+        assert "Телефон не указан" in disabled_inbox.text
+
+        internal_headers = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
+        account = client.get(
+            "/api/internal/accounts", headers=internal_headers
+        ).json()["items"][0]
+        account_id = account["id"]
+        assert account["phone_e164"] is None
+        assert account["enabled"] is False
+        assert account["wa_state"] == "disabled"
+
+        account_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert f'action="/admin/accounts/{account_id}/whatsapp/connect"' not in account_admin.text
+        assert "Введите телефон в данных аккаунта" in account_admin.text
+
+        blocked = client.post(
+            f"/admin/accounts/{account_id}/whatsapp/connect",
+            auth=ADMIN_AUTH,
+            data={"csrf_token": extract_csrf(account_admin.text)},
+        )
+        assert blocked.status_code == 422
+        assert "Сначала введите телефон" in blocked.text
+
+        arbitrary_phone = "внутренний номер / доб. 12"
+        updated = client.post(
+            f"/admin/accounts/{account_id}/metadata",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={
+                "csrf_token": extract_csrf(blocked.text),
+                "phone": arbitrary_phone,
+                "label": "Произвольный телефон",
+                "owner_name": "",
+                "comment": "",
+            },
+        )
+        assert updated.status_code == 303
+        updated_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert arbitrary_phone in updated_admin.text
+        assert f'action="/admin/accounts/{account_id}/whatsapp/connect"' in updated_admin.text
+
+        started = client.post(
+            f"/admin/accounts/{account_id}/whatsapp/connect",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={"csrf_token": extract_csrf(updated_admin.text)},
+        )
+        assert started.status_code == 303
+        started_account = client.get(
+            "/api/internal/accounts", headers=internal_headers
+        ).json()["items"][0]
+        assert started_account["enabled"] is True
+        assert started_account["wa_state"] == "new"
+
+
+def test_email_is_the_unique_account_identity_and_form_metadata_survives_errors():
+    shared_phone = "один телефон для двух аккаунтов"
+    with TestClient(make_app()) as client:
+        admin = client.get("/admin", auth=ADMIN_AUTH)
+        first = client.post(
+            "/admin/accounts",
+            auth=ADMIN_AUTH,
+            data={
+                "csrf_token": extract_csrf(admin.text),
+                "login_email": LOGIN_EMAIL,
+                "login_password": LOGIN_PASSWORD,
+                "phone": shared_phone,
+                "without_totp": "true",
+            },
+        )
+        assert first.status_code == 200
+        second = client.post(
+            "/admin/accounts",
+            auth=ADMIN_AUTH,
+            data={
+                "csrf_token": extract_csrf(client.get('/admin', auth=ADMIN_AUTH).text),
+                "login_email": "second@arbitrary-domain.local",
+                "login_password": LOGIN_PASSWORD,
+                "phone": shared_phone,
+                "without_totp": "true",
+            },
+        )
+        assert second.status_code == 200
+
+        duplicate = client.post(
+            "/admin/accounts",
+            auth=ADMIN_AUTH,
+            data={
+                "csrf_token": extract_csrf(client.get('/admin', auth=ADMIN_AUTH).text),
+                "login_email": LOGIN_EMAIL.upper(),
+                "login_password": LOGIN_PASSWORD,
+                "phone": "совсем другой телефон",
+                "label": "Сохранённое название",
+                "owner_name": "Сохранённый владелец",
+                "comment": "Сохранённый комментарий",
+                "without_totp": "true",
+            },
+        )
+        assert duplicate.status_code == 409
+        assert "Этот email уже привязан" in duplicate.text
+        assert 'value="Сохранённое название"' in duplicate.text
+        assert 'value="Сохранённый владелец"' in duplicate.text
+        assert "Сохранённый комментарий" in duplicate.text
+        assert 'name="without_totp" type="checkbox" value="true" checked' in duplicate.text
+        assert "data-create-whatsapp-login hidden" not in duplicate.text
+        assert LOGIN_PASSWORD not in duplicate.text
+
+        accounts = client.get(
+            "/api/internal/accounts",
+            headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+        ).json()["items"]
+        assert len(accounts) == 2
+        assert [item["phone_e164"] for item in accounts] == [shared_phone, shared_phone]
+
+
 def test_admin_can_add_replace_and_remove_totp_without_revealing_secret():
     secret = "JBSWY3DPEHPK3PXP"
     uri = (
@@ -485,6 +626,17 @@ def test_whatsapp_qr_request_is_always_visible_idempotent_and_durable():
         account = client.get("/api/internal/accounts", headers=internal_headers).json()["items"][0]
         account_id = account["id"]
         assert account["logout_command_id"] is None
+        assert account["enabled"] is False
+
+        disabled_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert "Войти через QR WhatsApp" in disabled_admin.text
+        connected = client.post(
+            f"/admin/accounts/{account_id}/whatsapp/connect",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={"csrf_token": extract_csrf(disabled_admin.text)},
+        )
+        assert connected.status_code == 303
 
         online = client.post(
             f"/api/internal/accounts/{account_id}/state",
@@ -506,7 +658,7 @@ def test_whatsapp_qr_request_is_always_visible_idempotent_and_durable():
         )
         assert disabled.status_code == 303
         disabled_admin = client.get("/admin", auth=ADMIN_AUTH)
-        assert "Включить и получить QR WhatsApp" in disabled_admin.text
+        assert "Войти через QR WhatsApp" in disabled_admin.text
         account = client.get("/api/internal/accounts", headers=internal_headers).json()["items"][0]
         assert account["logout_command_id"] is None
         assert account["wa_state"] == "disabled"

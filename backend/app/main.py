@@ -73,6 +73,10 @@ templates.env.globals["static_version"] = STATIC_VERSION
 basic_scheme = HTTPBasic(auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 PHONE_PATH_RE = re.compile(r"^[1-9]\d{7,14}$")
+ACCOUNT_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}$")
 ALLOWED_WA_STATES = {
     "new",
@@ -158,8 +162,8 @@ def _phone_from_path(phone_digits: str) -> str:
         raise HTTPException(status_code=404, detail="Not found") from exc
 
 
-def _capability_url(settings: Settings, phone_e164: str, token: str) -> str:
-    return f"{settings.public_base_url}/inbox/{phone_e164.removeprefix('+')}/{token}"
+def _capability_url(settings: Settings, account_id: str, token: str) -> str:
+    return f"{settings.public_base_url}/inbox/{account_id}/{token}"
 
 
 def _active_until(value: datetime | None) -> bool:
@@ -241,19 +245,47 @@ async def require_internal(
 
 
 async def _authorized_account(
-    session: AsyncSession, settings: Settings, phone_digits: str, token: str
+    session: AsyncSession, settings: Settings, account_id: str, token: str
 ) -> Account:
-    phone = _phone_from_path(phone_digits)
-    account = await session.scalar(select(Account).where(Account.phone_e164 == phone))
+    if not ACCOUNT_ID_RE.fullmatch(account_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    account = await session.get(Account, account_id)
     pepper = _secret(settings, "access_token_pepper")
     if (
         account is None
-        or not account.enabled
         or not _active_until(account.capability_expires_at)
         or not verify_capability_token(token, account.access_token_hash, pepper)
     ):
         raise HTTPException(status_code=404, detail="Not found")
     return account
+
+
+async def _authorized_legacy_phone_account(
+    session: AsyncSession, settings: Settings, phone_digits: str, token: str
+) -> Account:
+    """Resolve links issued before account UUIDs replaced phone numbers in URLs."""
+    phone = _phone_from_path(phone_digits)
+    pepper = _secret(settings, "access_token_pepper")
+    accounts = list(
+        await session.scalars(select(Account).where(Account.phone_e164 == phone))
+    )
+    matches = [
+        account
+        for account in accounts
+        if _active_until(account.capability_expires_at)
+        and verify_capability_token(token, account.access_token_hash, pepper)
+    ]
+    if len(matches) != 1:
+        raise HTTPException(status_code=404, detail="Not found")
+    return matches[0]
+
+
+async def _authorized_account_reference(
+    session: AsyncSession, settings: Settings, account_ref: str, token: str
+) -> Account:
+    if ACCOUNT_ID_RE.fullmatch(account_ref):
+        return await _authorized_account(session, settings, account_ref, token)
+    return await _authorized_legacy_phone_account(session, settings, account_ref, token)
 
 
 def _sanitize_metadata(raw: dict | None) -> dict | None:
@@ -342,7 +374,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         *,
         notice: str | None = None,
         error: str | None = None,
-        form_values: dict[str, str] | None = None,
+        form_values: dict[str, object] | None = None,
         status_code: int = 200,
     ) -> HTMLResponse:
         account_rows = list(
@@ -371,7 +403,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                     token = credential_cipher.decrypt(account.encrypted_access_token)
                     if verify_capability_token(token, account.access_token_hash, token_pepper):
                         capability_url = _capability_url(
-                            request.app.state.settings, account.phone_e164, token
+                            request.app.state.settings, account.id, token
                         )
                 except Exception:
                     logger.warning(
@@ -496,8 +528,8 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         request: Request,
         _: Annotated[str, Depends(require_admin)],
         session: Annotated[AsyncSession, Depends(get_session)],
-        phone: Annotated[str, Form(min_length=8, max_length=40)],
         csrf_token: Annotated[str, Form()],
+        phone: Annotated[str, Form()] = "",
         login_email: Annotated[str, Form()] = "",
         login_password: Annotated[str, Form()] = "",
         owner_name: Annotated[str, Form()] = "",
@@ -505,22 +537,28 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         label: Annotated[str, Form(max_length=120)] = "",
         totp_secret: Annotated[str, Form()] = "",
         without_totp: Annotated[bool, Form()] = False,
+        start_whatsapp: Annotated[bool, Form()] = False,
     ):
         settings: Settings = request.app.state.settings
         if not _verify_csrf(settings, csrf_token):
             raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
-        if len(owner_name) > 120 or len(comment) > 2000:
+
+        def retained_values(*, email: str | None = None) -> dict[str, object]:
+            return {
+                "login_email": login_email if email is None else email,
+                "phone": phone,
+                "label": label,
+                "owner_name": owner_name,
+                "comment": comment[:2000],
+                "without_totp": without_totp,
+            }
+
+        if len(owner_name) > 120 or len(comment) > 2000 or len(phone.strip()) > 120:
             return await render_admin(
                 request,
                 session,
-                error="Поле «У кого» или комментарий слишком длинные.",
-                form_values={
-                    "login_email": login_email,
-                    "phone": phone,
-                    "label": label,
-                    "owner_name": owner_name,
-                    "comment": comment[:2000],
-                },
+                error="Телефон, поле «У кого» или комментарий слишком длинные.",
+                form_values=retained_values(),
                 status_code=422,
             )
         try:
@@ -531,17 +569,17 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 request,
                 session,
                 error="Введите корректный email и непустой пароль.",
-                form_values={"login_email": login_email, "phone": phone},
+                form_values=retained_values(),
                 status_code=422,
             )
-        try:
-            phone_e164 = normalize_phone(phone)
-        except PhoneNormalizationError as exc:
+
+        phone_value = phone.strip() or None
+        if start_whatsapp and phone_value is None:
             return await render_admin(
                 request,
                 session,
-                error="Введите телефон в международном формате, начиная с +.",
-                form_values={"login_email": normalized_email, "phone": phone},
+                error="Сначала введите телефон, затем запускайте вход через QR WhatsApp.",
+                form_values=retained_values(email=normalized_email),
                 status_code=422,
             )
 
@@ -550,7 +588,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 request,
                 session,
                 error="Либо укажите TOTP, либо отметьте аккаунт без TOTP.",
-                form_values={"login_email": normalized_email, "phone": phone},
+                form_values=retained_values(email=normalized_email),
                 status_code=422,
             )
         if not without_totp and not totp_secret.strip():
@@ -558,7 +596,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 request,
                 session,
                 error="TOTP нужен по умолчанию. Для исключения отметьте «Аккаунт без TOTP».",
-                form_values={"login_email": normalized_email, "phone": phone},
+                form_values=retained_values(email=normalized_email),
                 status_code=422,
             )
         try:
@@ -572,20 +610,20 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 request,
                 session,
                 error="TOTP не сохранён. Проверьте Base32-секрет или ссылку otpauth://totp.",
-                form_values={"login_email": normalized_email, "phone": phone},
+                form_values=retained_values(email=normalized_email),
                 status_code=422,
             )
 
         token = generate_capability_token()
         expires_at = datetime.now(UTC) + timedelta(hours=settings.capability_ttl_hours)
         account = Account(
-            phone_e164=phone_e164,
+            phone_e164=phone_value,
             label=(label.strip() or normalized_email)[:120],
             owner_name=owner_name.strip() or None,
             comment=comment.strip() or None,
             login_email=normalized_email,
             encrypted_login_password=encrypted_password,
-            enabled=True,
+            enabled=start_whatsapp,
             access_token_hash=hash_capability_token(
                 token, _secret(settings, "access_token_pepper")
             ),
@@ -594,18 +632,18 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             ).encrypt(token),
             capability_expires_at=expires_at,
             encrypted_totp_secret=encrypted_seed,
-            wa_state="new",
+            wa_state="new" if start_whatsapp else "disabled",
         )
         session.add(account)
         try:
             await session.flush()
-        except IntegrityError as exc:
+        except IntegrityError:
             await session.rollback()
             return await render_admin(
                 request,
                 session,
-                error="Этот телефон или email уже зарегистрирован.",
-                form_values={"login_email": normalized_email, "phone": phone},
+                error="Этот email уже привязан к другому аккаунту.",
+                form_values=retained_values(email=normalized_email),
                 status_code=409,
             )
         session.add(
@@ -616,13 +654,45 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             )
         )
         await session.commit()
+        return RedirectResponse(
+            f"/admin/accounts/{account.id}/created",
+            status_code=303,
+        )
+
+    @app.get("/admin/accounts/{account_id}/created", response_class=HTMLResponse)
+    async def created_account_link(
+        account_id: str,
+        request: Request,
+        _: Annotated[str, Depends(require_admin)],
+        session: Annotated[AsyncSession, Depends(get_session)],
+    ):
+        settings: Settings = request.app.state.settings
+        account = await session.get(Account, account_id)
+        if (
+            account is None
+            or not account.encrypted_access_token
+            or not _active_until(account.capability_expires_at)
+        ):
+            raise HTTPException(status_code=404, detail="Account link is unavailable")
+        try:
+            token = CredentialCipher(
+                _secret(settings, "credential_fernet_key")
+            ).decrypt(account.encrypted_access_token)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Account link is unavailable") from exc
+        if not verify_capability_token(
+            token,
+            account.access_token_hash,
+            _secret(settings, "access_token_pepper"),
+        ):
+            raise HTTPException(status_code=503, detail="Account link is unavailable")
         return templates.TemplateResponse(
             request=request,
             name="capability.html",
             context={
-                "label": account.label,
-                "capability_url": _capability_url(settings, account.phone_e164, token),
-                "expires_at": expires_at.strftime("%Y-%m-%d %H:%M UTC"),
+                "label": account.label or account.login_email or "аккаунта",
+                "capability_url": _capability_url(settings, account.id, token),
+                "expires_at": account.capability_expires_at.strftime("%Y-%m-%d %H:%M UTC"),
             },
         )
 
@@ -633,7 +703,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         _: Annotated[str, Depends(require_admin)],
         session: Annotated[AsyncSession, Depends(get_session)],
         csrf_token: Annotated[str, Form()],
-        phone: Annotated[str | None, Form(max_length=40)] = None,
+        phone: Annotated[str | None, Form()] = None,
         label: Annotated[str | None, Form(max_length=120)] = None,
         owner_name: Annotated[str, Form()] = "",
         comment: Annotated[str, Form()] = "",
@@ -644,24 +714,20 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         account = await session.get(Account, account_id)
         if account is None:
             raise HTTPException(status_code=404, detail="Account not found")
-        if len(owner_name) > 120 or len(comment) > 2000:
+        if (
+            len(owner_name) > 120
+            or len(comment) > 2000
+            or (phone is not None and len(phone.strip()) > 120)
+        ):
             return await render_admin(
                 request,
                 session,
                 error="Данные аккаунта не изменены: превышена допустимая длина.",
                 status_code=422,
             )
-        try:
-            phone_e164 = account.phone_e164 if phone is None else normalize_phone(phone)
-        except PhoneNormalizationError:
-            return await render_admin(
-                request,
-                session,
-                error="Данные аккаунта не изменены: проверьте телефон в международном формате.",
-                status_code=422,
-            )
+        phone_value = account.phone_e164 if phone is None else (phone.strip() or None)
         previous_phone = account.phone_e164
-        account.phone_e164 = phone_e164
+        account.phone_e164 = phone_value
         if label is not None:
             account.label = label.strip() or None
         account.owner_name = owner_name.strip() or None
@@ -671,7 +737,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 account_id=account.id,
                 event_type="account.details.updated",
                 actor=settings.admin_username,
-                details={"phone_changed": previous_phone != phone_e164},
+                details={"phone_changed": previous_phone != phone_value},
             )
         )
         try:
@@ -681,7 +747,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             return await render_admin(
                 request,
                 session,
-                error="Данные аккаунта не изменены: этот телефон уже зарегистрирован.",
+                error="Данные аккаунта не изменены из-за конфликта данных.",
                 status_code=409,
             )
         return RedirectResponse("/admin?notice=Account+details+updated", status_code=303)
@@ -812,7 +878,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         )
         await session.commit()
         return {
-            "url": _capability_url(settings, account.phone_e164, token),
+            "url": _capability_url(settings, account.id, token),
             "expires_at": account.capability_expires_at,
         }
 
@@ -926,8 +992,8 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             request=request,
             name="capability.html",
             context={
-                "label": account.label or account.phone_e164,
-                "capability_url": _capability_url(settings, account.phone_e164, token),
+                "label": account.label or account.login_email or account.phone_e164,
+                "capability_url": _capability_url(settings, account.id, token),
                 "expires_at": expires_at.strftime("%Y-%m-%d %H:%M UTC"),
             },
         )
@@ -953,6 +1019,13 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 error="Дождитесь завершения выхода из WhatsApp перед изменением состояния.",
                 status_code=409,
             )
+        if not account.enabled and not account.phone_e164:
+            return await render_admin(
+                request,
+                session,
+                error="Сначала введите телефон, затем включайте WhatsApp.",
+                status_code=422,
+            )
         account.enabled = not account.enabled
         account.wa_state = "new" if account.enabled else "disabled"
         if not account.enabled:
@@ -968,6 +1041,50 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         )
         await session.commit()
         return RedirectResponse("/admin?notice=Account+updated", status_code=303)
+
+    @app.post("/admin/accounts/{account_id}/whatsapp/connect")
+    async def request_whatsapp_connect(
+        account_id: str,
+        request: Request,
+        _: Annotated[str, Depends(require_admin)],
+        session: Annotated[AsyncSession, Depends(get_session)],
+        csrf_token: Annotated[str, Form()],
+    ):
+        settings: Settings = request.app.state.settings
+        if not _verify_csrf(settings, csrf_token):
+            raise HTTPException(status_code=403, detail="Invalid or expired CSRF token")
+        account = await session.scalar(
+            select(Account).where(Account.id == account_id).with_for_update()
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Account not found")
+        if not account.phone_e164:
+            return await render_admin(
+                request,
+                session,
+                error="Сначала введите телефон, затем запускайте вход через QR WhatsApp.",
+                status_code=422,
+            )
+        if account.wa_logout_command_id is not None:
+            return RedirectResponse(
+                "/admin?notice=WhatsApp+login+already+requested", status_code=303
+            )
+        if not account.enabled:
+            account.enabled = True
+            account.wa_state = "new"
+            account.encrypted_qr_data = None
+            account.encrypted_pairing_code = None
+            account.qr_expires_at = None
+            account.last_error = None
+            session.add(
+                AuditEvent(
+                    account_id=account.id,
+                    event_type="whatsapp.login_requested",
+                    actor=settings.admin_username,
+                )
+            )
+            await session.commit()
+        return RedirectResponse("/admin?notice=WhatsApp+login+requested", status_code=303)
 
     @app.post("/admin/accounts/{account_id}/whatsapp/logout")
     async def request_whatsapp_logout(
@@ -985,6 +1102,13 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         )
         if account is None:
             raise HTTPException(status_code=404, detail="Account not found")
+        if not account.phone_e164:
+            return await render_admin(
+                request,
+                session,
+                error="Сначала введите телефон, затем запрашивайте QR WhatsApp.",
+                status_code=422,
+            )
         if account.wa_logout_command_id is None:
             was_disabled = not account.enabled
             account.enabled = True
@@ -1042,18 +1166,18 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store, max-age=0"},
         )
 
-    @app.get("/inbox/{phone_digits}/{token}", response_class=HTMLResponse)
+    @app.get("/inbox/{account_ref}/{token}", response_class=HTMLResponse)
     async def inbox_page(
-        phone_digits: str,
+        account_ref: str,
         token: str,
         request: Request,
         session: Annotated[AsyncSession, Depends(get_session)],
     ):
         settings: Settings = request.app.state.settings
         await request.app.state.rate_limiter.enforce(
-            f"public:{phone_digits}:{_client_key(request)}", limit=180, window_seconds=60
+            f"public:{account_ref}:{_client_key(request)}", limit=180, window_seconds=60
         )
-        account = await _authorized_account(session, settings, phone_digits, token)
+        account = await _authorized_account_reference(session, settings, account_ref, token)
         account.capability_last_used_at = datetime.now(UTC)
         session.add(
             AuditEvent(
@@ -1073,30 +1197,30 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                     account.login_email and account.encrypted_login_password
                 ),
                 "has_totp": bool(account.encrypted_totp_secret),
-                "phone": account.phone_e164,
+                "phone": account.phone_e164 or "Телефон не указан",
                 "account_created_at": account.created_at,
-                "snapshot_url": f"/api/public/{phone_digits}/{token}/snapshot",
-                "credentials_url": f"/api/public/{phone_digits}/{token}/credentials",
+                "snapshot_url": f"/api/public/{account_ref}/{token}/snapshot",
+                "credentials_url": f"/api/public/{account_ref}/{token}/credentials",
             },
         )
 
     @app.get(
-        "/api/public/{phone_digits}/{token}/credentials",
+        "/api/public/{account_ref}/{token}/credentials",
         response_model=PublicCredentials,
     )
     async def public_credentials(
-        phone_digits: str,
+        account_ref: str,
         token: str,
         request: Request,
         session: Annotated[AsyncSession, Depends(get_session)],
     ):
         settings: Settings = request.app.state.settings
         await request.app.state.rate_limiter.enforce(
-            f"credentials:{phone_digits}:{_client_key(request)}",
+            f"credentials:{account_ref}:{_client_key(request)}",
             limit=20,
             window_seconds=60,
         )
-        account = await _authorized_account(session, settings, phone_digits, token)
+        account = await _authorized_account_reference(session, settings, account_ref, token)
         if not account.login_email or not account.encrypted_login_password:
             raise HTTPException(status_code=404, detail="Credentials are not configured")
         try:
@@ -1118,18 +1242,18 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         await session.commit()
         return PublicCredentials(email=account.login_email, password=password)
 
-    @app.get("/api/public/{phone_digits}/{token}/snapshot", response_model=PublicSnapshot)
+    @app.get("/api/public/{account_ref}/{token}/snapshot", response_model=PublicSnapshot)
     async def public_snapshot(
-        phone_digits: str,
+        account_ref: str,
         token: str,
         request: Request,
         session: Annotated[AsyncSession, Depends(get_session)],
     ):
         settings: Settings = request.app.state.settings
         await request.app.state.rate_limiter.enforce(
-            f"public:{phone_digits}:{_client_key(request)}", limit=180, window_seconds=60
+            f"public:{account_ref}:{_client_key(request)}", limit=180, window_seconds=60
         )
-        account = await _authorized_account(session, settings, phone_digits, token)
+        account = await _authorized_account_reference(session, settings, account_ref, token)
         rows = list(
             await session.scalars(
                 select(Message)

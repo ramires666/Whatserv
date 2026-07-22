@@ -11,7 +11,7 @@ class ORMModel(BaseModel):
 
 
 class AccountCreate(BaseModel):
-    phone_e164: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
+    phone_e164: str | None = Field(default=None, max_length=120)
     label: str | None = Field(default=None, max_length=120)
     access_token: str = Field(min_length=32, max_length=512)
     totp_secret: str | None = Field(default=None, min_length=16, max_length=2048)
@@ -26,7 +26,7 @@ class AccountUpdate(BaseModel):
 
 class AccountRead(ORMModel):
     id: str
-    phone_e164: str
+    phone_e164: str | None
     label: str | None
     enabled: bool
     wa_state: str
@@ -52,7 +52,7 @@ class MessageList(ORMModel):
 
 
 class TOTPRead(BaseModel):
-    phone_e164: str
+    phone_e164: str | None
     code: str = Field(pattern=r"^\d{6,8}$")
     valid_until: datetime
 
@@ -68,7 +68,7 @@ class AuditEventRead(ORMModel):
 
 class WorkerAccount(ORMModel):
     id: str
-    phone_e164: str
+    phone_e164: str | None
     enabled: bool
     wa_state: str
     logout_command_id: str | None = Field(validation_alias="wa_logout_command_id")

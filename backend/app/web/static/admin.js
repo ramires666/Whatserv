@@ -3,6 +3,9 @@
 
   const createSecret = document.querySelector('#create-totp-secret');
   const withoutTotp = document.querySelector('#without-totp');
+  const createForm = document.querySelector('#create-account');
+  const createPhone = document.querySelector('#create-phone');
+  const createWhatsappLogin = document.querySelector('[data-create-whatsapp-login]');
   const revealTimers = new Map();
   const openPanelsStorageKey = 'whatserv-admin-open-panels';
   let formDirty = false;
@@ -45,6 +48,57 @@
       }
     }
   }
+
+  function syncCreateWhatsappLogin() {
+    if (!createPhone || !createWhatsappLogin) return;
+    createWhatsappLogin.hidden = !createPhone.value.trim();
+  }
+
+  function showCreateError(message) {
+    let banner = document.querySelector('.error-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.className = 'error-banner';
+      banner.setAttribute('role', 'alert');
+      document.querySelector('.topbar')?.insertAdjacentElement('afterend', banner);
+    }
+    banner.textContent = message;
+    document.querySelector('#create-account-panel').open = true;
+    banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  createForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submitter = event.submitter;
+    const formData = new FormData(createForm);
+    if (submitter?.name) formData.set(submitter.name, submitter.value);
+    for (const button of createForm.querySelectorAll('button[type="submit"]')) {
+      button.disabled = true;
+    }
+    try {
+      const response = await fetch(createForm.action, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+        redirect: 'follow'
+      });
+      if (response.ok) {
+        window.location.assign(response.url || '/admin');
+        return;
+      }
+      const responseBody = await response.text();
+      const parsed = new DOMParser().parseFromString(responseBody, 'text/html');
+      const message = parsed.querySelector('.error-banner')?.textContent?.trim()
+        || `Не удалось сохранить аккаунт (HTTP ${response.status}).`;
+      showCreateError(message);
+    } catch (_) {
+      showCreateError('Не удалось сохранить аккаунт: проверьте соединение и повторите попытку.');
+    } finally {
+      for (const button of createForm.querySelectorAll('button[type="submit"]')) {
+        button.disabled = false;
+      }
+    }
+  });
 
   for (const button of document.querySelectorAll('[data-secret-toggle]')) {
     button.addEventListener('click', () => {
@@ -247,6 +301,7 @@
   setInterval(refreshAccountSummaries, 5000);
 
   withoutTotp?.addEventListener('change', syncCreateTotpRequirement);
+  createPhone?.addEventListener('input', syncCreateWhatsappLogin);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) return;
     for (const input of document.querySelectorAll('input[type="text"][name="totp_secret"]')) {
@@ -268,4 +323,5 @@
     }
   });
   syncCreateTotpRequirement();
+  syncCreateWhatsappLogin();
 })();
