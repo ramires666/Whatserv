@@ -2,7 +2,6 @@
   'use strict';
 
   const createSecret = document.querySelector('#create-totp-secret');
-  const createCode = document.querySelector('#create-totp-code');
   const withoutTotp = document.querySelector('#without-totp');
   const revealTimers = new Map();
   const openPanelsStorageKey = 'whatserv-admin-open-panels';
@@ -32,15 +31,12 @@
   }
 
   function syncCreateTotpRequirement() {
-    if (!createSecret || !createCode || !withoutTotp) return;
+    if (!createSecret || !withoutTotp) return;
     const disabled = withoutTotp.checked;
     createSecret.disabled = disabled;
     createSecret.required = !disabled;
-    createCode.disabled = disabled;
-    createCode.required = !disabled;
     if (disabled) {
       createSecret.value = '';
-      createCode.value = '';
       createSecret.type = 'password';
       const toggle = document.querySelector('[data-secret-toggle="create-totp-secret"]');
       if (toggle) {

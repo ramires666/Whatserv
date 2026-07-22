@@ -56,7 +56,6 @@ from .totp import (
     totp_code,
     totp_seconds_remaining,
     totp_valid_until,
-    verify_totp_code,
 )
 
 
@@ -171,14 +170,12 @@ def _active_until(value: datetime | None) -> bool:
     return value > datetime.now(UTC)
 
 
-def _encrypt_totp_input(settings: Settings, value: str, current_code: str) -> str | None:
-    if len(value) > 2048 or len(current_code) > 32:
+def _encrypt_totp_input(settings: Settings, value: str) -> str | None:
+    if len(value) > 2048:
         raise TotpInputError("TOTP input is too long")
     normalized = normalize_totp_input(value)
     if normalized is None:
         return None
-    if not verify_totp_code(normalized, current_code):
-        raise TotpInputError("Current TOTP code does not match")
     return TotpSeedCipher(_secret(settings, "fernet_key")).encrypt(normalized)
 
 
@@ -507,7 +504,6 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         comment: Annotated[str, Form()] = "",
         label: Annotated[str, Form(max_length=120)] = "",
         totp_secret: Annotated[str, Form()] = "",
-        totp_current_code: Annotated[str, Form()] = "",
         without_totp: Annotated[bool, Form()] = False,
     ):
         settings: Settings = request.app.state.settings
@@ -521,6 +517,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 form_values={
                     "login_email": login_email,
                     "phone": phone,
+                    "label": label,
                     "owner_name": owner_name,
                     "comment": comment[:2000],
                 },
@@ -548,7 +545,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 status_code=422,
             )
 
-        if without_totp and (totp_secret.strip() or totp_current_code.strip()):
+        if without_totp and totp_secret.strip():
             return await render_admin(
                 request,
                 session,
@@ -568,13 +565,13 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             encrypted_seed = (
                 None
                 if without_totp
-                else _encrypt_totp_input(settings, totp_secret, totp_current_code)
+                else _encrypt_totp_input(settings, totp_secret)
             )
         except TotpInputError:
             return await render_admin(
                 request,
                 session,
-                error="TOTP не сохранён. Проверьте секрет и текущий шестизначный код.",
+                error="TOTP не сохранён. Проверьте Base32-секрет или ссылку otpauth://totp.",
                 form_values={"login_email": normalized_email, "phone": phone},
                 status_code=422,
             )
@@ -636,6 +633,8 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         _: Annotated[str, Depends(require_admin)],
         session: Annotated[AsyncSession, Depends(get_session)],
         csrf_token: Annotated[str, Form()],
+        phone: Annotated[str | None, Form(max_length=40)] = None,
+        label: Annotated[str | None, Form(max_length=120)] = None,
         owner_name: Annotated[str, Form()] = "",
         comment: Annotated[str, Form()] = "",
     ):
@@ -649,20 +648,43 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             return await render_admin(
                 request,
                 session,
-                error="Метаданные не изменены: превышена допустимая длина.",
+                error="Данные аккаунта не изменены: превышена допустимая длина.",
                 status_code=422,
             )
+        try:
+            phone_e164 = account.phone_e164 if phone is None else normalize_phone(phone)
+        except PhoneNormalizationError:
+            return await render_admin(
+                request,
+                session,
+                error="Данные аккаунта не изменены: проверьте телефон в международном формате.",
+                status_code=422,
+            )
+        previous_phone = account.phone_e164
+        account.phone_e164 = phone_e164
+        if label is not None:
+            account.label = label.strip() or None
         account.owner_name = owner_name.strip() or None
         account.comment = comment.strip() or None
         session.add(
             AuditEvent(
                 account_id=account.id,
-                event_type="account.metadata.updated",
+                event_type="account.details.updated",
                 actor=settings.admin_username,
+                details={"phone_changed": previous_phone != phone_e164},
             )
         )
-        await session.commit()
-        return RedirectResponse("/admin?notice=Metadata+updated", status_code=303)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            return await render_admin(
+                request,
+                session,
+                error="Данные аккаунта не изменены: этот телефон уже зарегистрирован.",
+                status_code=409,
+            )
+        return RedirectResponse("/admin?notice=Account+details+updated", status_code=303)
 
     @app.post("/admin/accounts/{account_id}/credentials")
     async def update_credentials(
@@ -682,7 +704,13 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Account not found")
         try:
             normalized_email = _normalize_login_email(login_email)
-            encrypted_password = _encrypt_login_password(settings, login_password)
+            encrypted_password = (
+                _encrypt_login_password(settings, login_password)
+                if login_password
+                else account.encrypted_login_password
+            )
+            if encrypted_password is None:
+                raise ValueError("password is required")
         except ValueError:
             return await render_admin(
                 request,
@@ -691,7 +719,6 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                 status_code=422,
             )
         account.login_email = normalized_email
-        account.label = normalized_email[:120]
         account.encrypted_login_password = encrypted_password
         session.add(
             AuditEvent(
@@ -797,7 +824,6 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         session: Annotated[AsyncSession, Depends(get_session)],
         csrf_token: Annotated[str, Form()],
         totp_secret: Annotated[str, Form()] = "",
-        totp_current_code: Annotated[str, Form()] = "",
     ):
         settings: Settings = request.app.state.settings
         if not _verify_csrf(settings, csrf_token):
@@ -806,7 +832,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         if account is None:
             raise HTTPException(status_code=404, detail="Account not found")
         try:
-            encrypted_seed = _encrypt_totp_input(settings, totp_secret, totp_current_code)
+            encrypted_seed = _encrypt_totp_input(settings, totp_secret)
         except TotpInputError:
             return await render_admin(
                 request,
@@ -950,7 +976,6 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         _: Annotated[str, Depends(require_admin)],
         session: Annotated[AsyncSession, Depends(get_session)],
         csrf_token: Annotated[str, Form()],
-        confirmation_phone: Annotated[str, Form()] = "",
     ):
         settings: Settings = request.app.state.settings
         if not _verify_csrf(settings, csrf_token):
@@ -960,24 +985,9 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
         )
         if account is None:
             raise HTTPException(status_code=404, detail="Account not found")
-        if not account.enabled:
-            return await render_admin(
-                request,
-                session,
-                error="Сначала включите аккаунт, затем запускайте перепривязку WhatsApp.",
-                status_code=409,
-            )
-        supplied_phone = confirmation_phone.strip()
-        if len(supplied_phone) > 40 or not secrets.compare_digest(
-            supplied_phone.encode(), account.phone_e164.encode()
-        ):
-            return await render_admin(
-                request,
-                session,
-                error=f"WhatsApp не разлогинен: введите номер {account.phone_e164} полностью.",
-                status_code=422,
-            )
         if account.wa_logout_command_id is None:
+            was_disabled = not account.enabled
+            account.enabled = True
             account.wa_logout_command_id = str(uuid4())
             account.wa_state = "logout_requested"
             account.encrypted_qr_data = None
@@ -989,6 +999,7 @@ def create_app(*, settings_override: Settings | None = None) -> FastAPI:
                     account_id=account.id,
                     event_type="whatsapp.logout_requested",
                     actor=settings.admin_username,
+                    details={"enabled_for_relink": was_disabled},
                 )
             )
             await session.commit()

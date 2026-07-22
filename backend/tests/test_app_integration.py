@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.models import Account
-from app.totp import totp_code
+from app.totp import totp_code, verify_totp_code
 
 
 ADMIN_AUTH = ("admin", "a-very-long-admin-password")
@@ -59,6 +59,7 @@ def test_full_account_qr_message_and_totp_flow():
         assert admin.text.index("Google Authenticator</legend>") < admin.text.index("WhatsApp</legend>")
         assert 'type="password"' in admin.text
         assert "otpauth://totp" in admin.text
+        assert 'name="totp_current_code"' not in admin.text
         csrf = extract_csrf(admin.text)
 
         created = client.post(
@@ -70,9 +71,9 @@ def test_full_account_qr_message_and_totp_flow():
                 "login_password": LOGIN_PASSWORD,
                 "owner_name": "Иван",
                 "comment": "Основной Codex-аккаунт",
+                "label": "Основной аккаунт",
                 "phone": "+1 (415) 555-2671",
                 "totp_secret": "JBSW Y3DP EHPK 3PXP",
-                "totp_current_code": totp_code("JBSWY3DPEHPK3PXP"),
             },
         )
         assert created.status_code == 200
@@ -169,6 +170,7 @@ def test_full_account_qr_message_and_totp_flow():
 
         admin_after_create = client.get("/admin", auth=ADMIN_AUTH)
         assert LOGIN_EMAIL in admin_after_create.text
+        assert "Основной аккаунт" in admin_after_create.text
         assert "Рабочий WhatsApp" in admin_after_create.text
         assert "У кого: <strong>Иван</strong>" in admin_after_create.text
         assert "Основной Codex-аккаунт" in admin_after_create.text
@@ -198,14 +200,37 @@ def test_full_account_qr_message_and_totp_flow():
             follow_redirects=False,
             data={
                 "csrf_token": extract_csrf(admin_after_create.text),
+                "phone": "+1 (415) 555-2672",
+                "label": "Резервный WhatsApp",
                 "owner_name": "Пётр",
                 "comment": "Резервный аккаунт",
             },
         )
         assert metadata.status_code == 303
         updated_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert "+14155552672" in updated_admin.text
+        assert "Резервный WhatsApp" in updated_admin.text
         assert "У кого: <strong>Пётр</strong>" in updated_admin.text
         assert "Резервный аккаунт" in updated_admin.text
+
+        credentials_update = client.post(
+            f"/admin/accounts/{account_id}/credentials",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={
+                "csrf_token": extract_csrf(updated_admin.text),
+                "login_email": "changed@arbitrary-domain.local",
+                "login_password": "",
+            },
+        )
+        assert credentials_update.status_code == 303
+        assert client.get(
+            f"/admin/accounts/{account_id}/credentials", auth=ADMIN_AUTH
+        ).json() == {
+            "email": "changed@arbitrary-domain.local",
+            "password": LOGIN_PASSWORD,
+        }
+        assert "Резервный WhatsApp" in client.get("/admin", auth=ADMIN_AUTH).text
 
         rotated = client.post(
             f"/admin/accounts/{account_id}/rotate-link",
@@ -283,7 +308,6 @@ def test_totp_is_expected_by_default_but_can_be_explicitly_omitted():
                 "login_password": LOGIN_PASSWORD,
                 "phone": "+14155552671",
                 "totp_secret": oversized_secret,
-                "totp_current_code": "123456",
             },
         )
         assert oversized.status_code == 422
@@ -375,7 +399,6 @@ def test_admin_can_add_replace_and_remove_totp_without_revealing_secret():
             data={
                 "csrf_token": extract_csrf(admin_without_totp.text),
                 "totp_secret": uri,
-                "totp_current_code": totp_code(secret),
             },
         )
         assert updated.status_code == 303
@@ -389,31 +412,40 @@ def test_admin_can_add_replace_and_remove_totp_without_revealing_secret():
         assert uri not in admin_with_totp.text
 
         replacement_secret = "GEZDGNBVGY3TQOJQ"
-        actual_replacement_code = totp_code(replacement_secret)
-        wrong_replacement_code = (
-            actual_replacement_code[:-1]
-            + str((int(actual_replacement_code[-1]) + 1) % 10)
-        )
         invalid_replacement = client.post(
             f"/admin/accounts/{account_id}/totp",
             auth=ADMIN_AUTH,
             data={
                 "csrf_token": extract_csrf(admin_with_totp.text),
-                "totp_secret": replacement_secret,
-                "totp_current_code": wrong_replacement_code,
+                "totp_secret": "not-a-valid-base32-secret!",
             },
         )
         assert invalid_replacement.status_code == 422
         assert "Секрет не изменён" in invalid_replacement.text
-        assert replacement_secret not in invalid_replacement.text
-        assert wrong_replacement_code not in invalid_replacement.text
+        assert "not-a-valid-base32-secret!" not in invalid_replacement.text
         assert len(client.get(snapshot_path).json()["totp"]["code"]) == 6
+
+        replaced = client.post(
+            f"/admin/accounts/{account_id}/totp",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={
+                "csrf_token": extract_csrf(invalid_replacement.text),
+                "totp_secret": replacement_secret,
+            },
+        )
+        assert replaced.status_code == 303
+        assert verify_totp_code(
+            replacement_secret,
+            client.get(snapshot_path).json()["totp"]["code"],
+        )
+        admin_after_replacement = client.get("/admin", auth=ADMIN_AUTH)
 
         unconfirmed_removal = client.post(
             f"/admin/accounts/{account_id}/totp/remove",
             auth=ADMIN_AUTH,
             data={
-                "csrf_token": extract_csrf(invalid_replacement.text),
+                "csrf_token": extract_csrf(admin_after_replacement.text),
                 "confirmation": "нет",
             },
         )
@@ -433,7 +465,7 @@ def test_admin_can_add_replace_and_remove_totp_without_revealing_secret():
         assert client.get(snapshot_path).json()["totp"] is None
 
 
-def test_whatsapp_logout_requires_double_confirmation_and_durable_worker_ack():
+def test_whatsapp_qr_request_is_always_visible_idempotent_and_durable():
     with TestClient(make_app()) as client:
         admin = client.get("/admin", auth=ADMIN_AUTH)
         created = client.post(
@@ -462,35 +494,47 @@ def test_whatsapp_logout_requires_double_confirmation_and_durable_worker_ack():
         assert online.status_code == 200
 
         admin_account = client.get("/admin", auth=ADMIN_AUTH)
-        assert "Разлогинить и перепривязать WhatsApp" in admin_account.text
-        assert 'data-confirm="Точно разлогинить WhatsApp +14155552671?' in admin_account.text
+        assert "Получить новый QR WhatsApp" in admin_account.text
+        assert 'name="confirmation_phone"' not in admin_account.text
         csrf = extract_csrf(admin_account.text)
 
-        wrong_phone = client.post(
-            f"/admin/accounts/{account_id}/whatsapp/logout",
+        disabled = client.post(
+            f"/admin/accounts/{account_id}/toggle",
             auth=ADMIN_AUTH,
-            data={"csrf_token": csrf, "confirmation_phone": "+14155550000"},
+            follow_redirects=False,
+            data={"csrf_token": csrf},
         )
-        assert wrong_phone.status_code == 422
-        assert "WhatsApp не разлогинен" in wrong_phone.text
+        assert disabled.status_code == 303
+        disabled_admin = client.get("/admin", auth=ADMIN_AUTH)
+        assert "Включить и получить QR WhatsApp" in disabled_admin.text
         account = client.get("/api/internal/accounts", headers=internal_headers).json()["items"][0]
         assert account["logout_command_id"] is None
-        assert account["wa_state"] == "online"
+        assert account["wa_state"] == "disabled"
 
         requested = client.post(
             f"/admin/accounts/{account_id}/whatsapp/logout",
             auth=ADMIN_AUTH,
             follow_redirects=False,
-            data={
-                "csrf_token": extract_csrf(wrong_phone.text),
-                "confirmation_phone": "+14155552671",
-            },
+            data={"csrf_token": extract_csrf(disabled_admin.text)},
         )
         assert requested.status_code == 303
         account = client.get("/api/internal/accounts", headers=internal_headers).json()["items"][0]
         command_id = account["logout_command_id"]
         assert command_id
+        assert account["enabled"] is True
         assert account["wa_state"] == "logout_requested"
+
+        repeated = client.post(
+            f"/admin/accounts/{account_id}/whatsapp/logout",
+            auth=ADMIN_AUTH,
+            follow_redirects=False,
+            data={"csrf_token": extract_csrf(disabled_admin.text)},
+        )
+        assert repeated.status_code == 303
+        repeated_account = client.get(
+            "/api/internal/accounts", headers=internal_headers
+        ).json()["items"][0]
+        assert repeated_account["logout_command_id"] == command_id
 
         stale_state = client.post(
             f"/api/internal/accounts/{account_id}/state",

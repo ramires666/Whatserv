@@ -43,6 +43,9 @@
           <label>Пароль
             <input name="login_password" type="password" maxlength="1024" autocomplete="new-password" placeholder="Пароль аккаунта" required>
           </label>
+          <label>Название
+            <input name="label" maxlength="120" placeholder="Понятное название аккаунта" value="{{ form_values.get('label', '') }}">
+          </label>
           <label>У кого
             <input name="owner_name" maxlength="120" placeholder="Имя владельца или ответственного" value="{{ form_values.get('owner_name', '') }}">
           </label>
@@ -59,9 +62,7 @@
             <input id="create-totp-secret" name="totp_secret" type="password" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Base32 или otpauth://totp…">
             <button class="input-button" type="button" data-secret-toggle="create-totp-secret" aria-label="Показать TOTP-секрет">Показать</button>
           </div>
-          <label for="create-totp-code">Текущий шестизначный код</label>
-          <input id="create-totp-code" name="totp_current_code" inputmode="numeric" maxlength="8" autocomplete="one-time-code" placeholder="123456">
-          <p class="field-hint">Можно вставить Base32-ключ либо целиком ссылку <code>otpauth://totp/…</code>. Текущий код защищает от опечатки. После проверки секрет шифруется и больше не показывается.</p>
+          <p class="field-hint">Можно вставить Base32-ключ либо целиком ссылку <code>otpauth://totp/…</code>. Секрет проверяется по формату, шифруется и больше не показывается.</p>
           <label class="checkbox-row">
             <input id="without-totp" name="without_totp" type="checkbox" value="true">
             <span>Редкое исключение: этот аккаунт без TOTP</span>
@@ -91,7 +92,8 @@
             <div class="account-main">
               <div>
                 <p class="eyebrow">{{ account.phone_e164 }}</p>
-                <h2>{{ account.login_email or account.label }}</h2>
+                <h2>{{ account.label or account.login_email or account.phone_e164 }}</h2>
+                {% if account.login_email %}<p class="account-name">Email: {{ account.login_email }}</p>{% endif %}
                 {% if account.wa_display_name %}<p class="account-name">WhatsApp: {{ account.wa_display_name }}</p>{% endif %}
                 {% if account.owner_name %}<p class="account-owner">У кого: <strong>{{ account.owner_name }}</strong></p>{% endif %}
               </div>
@@ -116,14 +118,19 @@
               <p class="pairing-code">{{ item.pairing_code }}</p>
             {% endif %}
             <details class="totp-settings">
-              <summary>Изменить «У кого» и комментарий</summary>
+              <summary>Редактировать данные аккаунта</summary>
               <form method="post" action="/admin/accounts/{{ account.id }}/metadata" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label for="phone-{{ account.id }}">Телефон</label>
+                <input id="phone-{{ account.id }}" name="phone" inputmode="tel" maxlength="40" value="{{ account.phone_e164 }}" required>
+                <label for="label-{{ account.id }}">Название</label>
+                <input id="label-{{ account.id }}" name="label" maxlength="120" value="{{ account.label or '' }}">
                 <label for="owner-{{ account.id }}">У кого</label>
                 <input id="owner-{{ account.id }}" name="owner_name" maxlength="120" value="{{ account.owner_name or '' }}">
                 <label for="comment-{{ account.id }}">Комментарий</label>
                 <textarea id="comment-{{ account.id }}" name="comment" maxlength="2000" rows="3">{{ account.comment or '' }}</textarea>
-                <button class="ghost-button" type="submit">Сохранить заметку</button>
+                <p class="field-hint">После изменения телефона прежний адрес уникальной страницы перестанет работать; актуальная ссылка останется в карточке.</p>
+                <button class="ghost-button" type="submit">Сохранить данные</button>
               </form>
             </details>
             <section class="account-live-summary" aria-label="Текущие данные аккаунта">
@@ -151,7 +158,7 @@
                 <label for="email-{{ account.id }}">Email</label>
                 <input id="email-{{ account.id }}" name="login_email" type="email" maxlength="254" autocomplete="username" value="{{ account.login_email or '' }}" required>
                 <label for="password-{{ account.id }}">Новый пароль</label>
-                <input id="password-{{ account.id }}" name="login_password" type="password" maxlength="1024" autocomplete="new-password" required>
+                <input id="password-{{ account.id }}" name="login_password" type="password" maxlength="1024" autocomplete="new-password" placeholder="Оставьте пустым, чтобы сохранить текущий" {{ 'required' if not item.has_credentials else '' }}>
                 <button class="ghost-button" type="submit">Сохранить логин и пароль</button>
               </form>
             </details>
@@ -201,8 +208,6 @@
                   <input id="totp-{{ account.id }}" name="totp_secret" type="password" maxlength="2048" autocomplete="off" autocapitalize="none" spellcheck="false" required>
                   <button class="input-button" type="button" data-secret-toggle="totp-{{ account.id }}" aria-label="Показать TOTP-секрет">Показать</button>
                 </div>
-                <label for="totp-code-{{ account.id }}">Текущий шестизначный код для проверки</label>
-                <input id="totp-code-{{ account.id }}" name="totp_current_code" inputmode="numeric" maxlength="8" autocomplete="one-time-code" required>
                 <button class="ghost-button" type="submit">Сохранить TOTP</button>
               </form>
               {% if item.has_totp %}
@@ -228,20 +233,13 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="ghost-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'Отключить' if account.enabled else 'Включить' }}</button>
               </form>
+              <form method="post" action="/admin/accounts/{{ account.id }}/whatsapp/logout" data-confirm="Получить новый QR для {{ account.phone_e164 }}? Текущая привязка WhatsApp будет завершена.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="primary-button" type="submit" {{ 'disabled' if account.wa_logout_command_id else '' }}>{{ 'QR запрошен…' if account.wa_logout_command_id else ('Включить и получить QR WhatsApp' if not account.enabled else 'Получить новый QR WhatsApp') }}</button>
+              </form>
             </div>
             {% if account.wa_logout_command_id %}
               <div class="logout-pending" role="status">Выход из WhatsApp запрошен. Worker удалит сессию и подготовит новый QR.</div>
-            {% elif account.enabled %}
-              <details class="danger-zone">
-                <summary>Разлогинить и перепривязать WhatsApp</summary>
-                <p>Это отвяжет текущее устройство WhatsApp и удалит локальную сессию. Сообщения и TOTP останутся. После выполнения появится новый QR.</p>
-                <form method="post" action="/admin/accounts/{{ account.id }}/whatsapp/logout" data-confirm="Точно разлогинить WhatsApp {{ account.phone_e164 }}? Текущая сессия будет удалена.">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <label for="logout-phone-{{ account.id }}">Для подтверждения введите {{ account.phone_e164 }}</label>
-                  <input id="logout-phone-{{ account.id }}" name="confirmation_phone" inputmode="tel" autocomplete="off" required>
-                  <button class="danger-button" type="submit">Разлогинить WhatsApp</button>
-                </form>
-              </details>
             {% endif %}
             </div>
           </details>
